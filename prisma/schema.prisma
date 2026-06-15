@@ -1,0 +1,341 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Auth (NextAuth) ───────────────────────────────────────────────
+
+model User {
+  id            String     @id @default(cuid())
+  name          String?
+  email         String     @unique
+  emailVerified DateTime?
+  password      String?
+  image         String?
+  role          UserRole   @default(USER)
+  phone         String?
+  status        UserStatus @default(ACTIVE)
+  referralCode  String?    @unique
+  referredById  String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  accounts          Account[]
+  sessions          Session[]
+  provider          Provider?
+  bookings          Booking[]
+  reviews           Review[]
+  referralsMade     Referral[] @relation("Inviter")
+  referralsReceived Referral[] @relation("Referred")
+  rewards           Reward[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  id         String   @id @default(cuid())
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique
+  expires   DateTime
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@map("password_reset_tokens")
+}
+
+// ─── Providers ─────────────────────────────────────────────────────
+
+model Provider {
+  id                 String             @id @default(cuid())
+  userId             String             @unique
+  businessName       String
+  description        String?            @db.Text
+  serviceCategory    String
+  location           String
+  city               String?
+  state              String?
+  pincode            String?
+  status             ProviderStatus     @default(PENDING)
+  verificationStatus VerificationStatus @default(PENDING)
+  isVerified         Boolean            @default(false)
+  canReceiveBookings Boolean            @default(false)
+  rating             Float              @default(0)
+  totalReviews       Int                @default(0)
+  completedJobs      Int                @default(0)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  verification ProviderVerification?
+  bookings     Booking[]
+  reviews      Review[]
+
+  @@index([status])
+  @@index([verificationStatus])
+  @@map("providers")
+}
+
+model ProviderVerification {
+  id                String    @id @default(cuid())
+  providerId        String    @unique
+  aadhaarStatus     DocStatus @default(PENDING)
+  aadhaarNumber     String?
+  aadhaarDocUrl     String?
+  panStatus         DocStatus @default(PENDING)
+  panNumber         String?
+  panDocUrl         String?
+  certificateStatus DocStatus @default(PENDING)
+  certificateUrl    String?
+  addressStatus     DocStatus @default(PENDING)
+  addressProofUrl   String?
+  profileStatus     DocStatus @default(PENDING)
+  rejectionReason   String?   @db.Text
+  reviewedBy        String?
+  reviewedAt        DateTime?
+  notes             String?   @db.Text
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@map("provider_verifications")
+}
+
+// ─── Bookings & Reviews ────────────────────────────────────────────
+
+model Booking {
+  id              String        @id @default(cuid())
+  bookingNumber   String        @unique
+  userId          String
+  providerId      String
+  serviceName     String
+  serviceCategory String
+  location        String
+  amount          Float
+  commission      Float         @default(0)
+  status          BookingStatus @default(PENDING)
+  scheduledAt     DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  user     User     @relation(fields: [userId], references: [id])
+  provider Provider @relation(fields: [providerId], references: [id])
+  review   Review?
+
+  @@index([status])
+  @@index([completedAt])
+  @@map("bookings")
+}
+
+model Review {
+  id         String   @id @default(cuid())
+  bookingId  String   @unique
+  userId     String
+  providerId String
+  rating     Int
+  comment    String?  @db.Text
+  createdAt  DateTime @default(now())
+
+  booking  Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id])
+  provider Provider @relation(fields: [providerId], references: [id])
+
+  @@index([rating])
+  @@map("reviews")
+}
+
+// ─── Referrals & Rewards ───────────────────────────────────────────
+
+model Referral {
+  id             String         @id @default(cuid())
+  referralCode   String
+  inviterId      String
+  referredUserId String
+  rewardAmount   Float          @default(0)
+  status         ReferralStatus @default(PENDING)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  inviter      User @relation("Inviter", fields: [inviterId], references: [id])
+  referredUser User @relation("Referred", fields: [referredUserId], references: [id])
+
+  @@index([referralCode])
+  @@map("referrals")
+}
+
+model Reward {
+  id          String       @id @default(cuid())
+  userId      String?
+  providerId  String?
+  type        RewardType
+  title       String
+  description String?      @db.Text
+  value       Float?
+  isAutomatic Boolean      @default(false)
+  assignedBy  String?
+  status      RewardStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@map("rewards")
+}
+
+// ─── Settings ──────────────────────────────────────────────────────
+
+model AppSettings {
+  id                   String   @id @default(cuid())
+  commissionPercentage Float    @default(10)
+  referralRewardAmount Float    @default(100)
+  giftRules            Json?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@map("app_settings")
+}
+
+model ServiceCategory {
+  id          String            @id @default(cuid())
+  slug        String?           @unique
+  name        String            @unique
+  description String?
+  icon        String?
+  isActive    Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  services    PlatformService[]
+
+  @@map("service_categories")
+}
+
+model PlatformService {
+  id          String          @id @default(cuid())
+  catalogId   Int             @unique
+  title       String
+  description String?         @db.Text
+  icon        String?
+  categoryId  String
+  isActive    Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  category    ServiceCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  subServices SubService[]
+
+  @@index([categoryId])
+  @@map("platform_services")
+}
+
+model SubService {
+  id        String          @id @default(cuid())
+  name      String
+  serviceId String
+  service   PlatformService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, name])
+  @@map("sub_services")
+}
+
+// ─── Enums ─────────────────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN
+  USER
+  PROVIDER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum ProviderStatus {
+  ACTIVE
+  INACTIVE
+  PENDING
+}
+
+enum VerificationStatus {
+  PENDING
+  UNDER_REVIEW
+  VERIFIED
+  REJECTED
+}
+
+enum DocStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum ReferralStatus {
+  PENDING
+  COMPLETED
+  EXPIRED
+}
+
+enum RewardType {
+  HIGHEST_RATED
+  MOST_JOBS
+  BEST_REVIEWS
+  MANUAL_GIFT
+  REFERRAL_BONUS
+}
+
+enum RewardStatus {
+  ACTIVE
+  CLAIMED
+  EXPIRED
+}
