@@ -1,4 +1,4 @@
-import { Layers } from "lucide-react";
+import { BrandLogo } from "@/components/brand/brand-logo";
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -10,10 +10,9 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
 
       <div className="relative w-full max-w-[420px]">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-500 via-emerald-500 to-teal-600 shadow-xl shadow-emerald-500/30">
-            <Layers className="h-8 w-8 text-white" />
+          <div className="mx-auto mb-5 flex justify-center">
+            <BrandLogo className="h-12 px-4 shadow-lg" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight">TapTeck Admin</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             Manage your marketplace — providers, bookings & services
           </p>

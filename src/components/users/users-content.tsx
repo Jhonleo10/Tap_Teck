@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import { toast } from "sonner";
 import { Users, UserCheck, UserX, UserMinus } from "lucide-react";
@@ -41,6 +42,8 @@ type UserRow = {
 };
 
 export function UsersContent({ users }: { users: UserRow[] }) {
+  const searchParams = useSearchParams();
+  const initialSearch = searchParams.get("q") ?? "";
   const [data, setData] = useState(users);
 
   const stats = useMemo(() => ({
@@ -164,6 +167,7 @@ export function UsersContent({ users }: { users: UserRow[] }) {
         data={data}
         searchKey="name"
         searchPlaceholder="Search users..."
+        defaultSearch={initialSearch}
       />
     </div>
   );

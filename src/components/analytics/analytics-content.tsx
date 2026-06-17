@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   BarChart,
   Bar,
@@ -23,13 +24,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 import { LoadingSpinner } from "@/components/shared/loading-spinner";
-import { getAnalyticsData } from "@/actions/analytics";
+import { getAnalyticsData, getFilterOptions } from "@/actions/analytics";
 import { formatCurrency } from "@/lib/utils";
+import { useCountry } from "@/components/providers/country-provider";
+import { getLocationDisplayLabel } from "@/lib/countries";
 import { IndianRupee, CalendarCheck } from "lucide-react";
 
 interface AnalyticsContentProps {
@@ -42,30 +47,51 @@ interface AnalyticsContentProps {
 }
 
 export function AnalyticsContent({ initialData, filterOptions }: AnalyticsContentProps) {
+  const searchParams = useSearchParams();
+  const urlPeriod = searchParams.get("period") as "day" | "week" | "month" | "year" | null;
+  const { countryCode, country, services, isReady } = useCountry();
   const [data, setData] = useState(initialData);
-  const [period, setPeriod] = useState<"day" | "week" | "month" | "year">("month");
+  const [filters, setFilters] = useState(filterOptions);
+  const [period, setPeriod] = useState<"day" | "week" | "month" | "year">(
+    urlPeriod && ["day", "week", "month", "year"].includes(urlPeriod) ? urlPeriod : "month"
+  );
   const [service, setService] = useState<string>("all");
   const [location, setLocation] = useState<string>("all");
   const [isPending, startTransition] = useTransition();
 
-  const fetchData = (
-    p: typeof period,
-    s: string,
-    l: string
-  ) => {
-    startTransition(async () => {
-      const result = await getAnalyticsData(
-        p,
-        s === "all" ? undefined : s,
-        l === "all" ? undefined : l
-      );
-      setData(result);
-    });
-  };
+  const fmt = useCallback(
+    (amount: number) => formatCurrency(amount, country.currency, country.locale),
+    [country]
+  );
+
+  const fetchData = useCallback(
+    (p: typeof period, s: string, l: string, c = countryCode) => {
+      startTransition(async () => {
+        const [result, opts] = await Promise.all([
+          getAnalyticsData(p, s === "all" ? undefined : s, l === "all" ? undefined : l, c),
+          getFilterOptions(c),
+        ]);
+        setData(result);
+        setFilters(opts);
+      });
+    },
+    [countryCode]
+  );
+
+  useEffect(() => {
+    if (!isReady) return;
+    if (urlPeriod && ["day", "week", "month", "year"].includes(urlPeriod)) {
+      fetchData(urlPeriod, "all", "all", countryCode);
+      return;
+    }
+    setService("all");
+    setLocation("all");
+    fetchData(period, "all", "all", countryCode);
+  }, [countryCode, isReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Business Analytics" description="Revenue, bookings, and performance across all service categories" badge="Insights">
+      <PageHeader title="Business Analytics" description={`${country.flag} ${country.name} — Revenue, bookings, and performance across TapTeck services`} badge={`${country.name} Insights`}>
         <div className="flex flex-wrap gap-2">
           <Select
             value={period}
@@ -97,25 +123,38 @@ export function AnalyticsContent({ initialData, filterOptions }: AnalyticsConten
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Services</SelectItem>
-              {filterOptions.services.map((s) => (
-                <SelectItem key={s} value={s}>{s}</SelectItem>
+              {services.map((s) => (
+                <SelectItem key={s.id} value={s.title}>{s.title}</SelectItem>
               ))}
             </SelectContent>
           </Select>
           <Select
+            key={countryCode}
             value={location}
             onValueChange={(v) => {
               setLocation(v);
               fetchData(period, service, v);
             }}
           >
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="Location" />
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="Location">
+                {location === "all"
+                  ? "All Locations"
+                  : getLocationDisplayLabel(countryCode, location)}
+              </SelectValue>
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="max-h-[min(20rem,70vh)] overflow-y-auto">
               <SelectItem value="all">All Locations</SelectItem>
-              {filterOptions.locations.map((l) => (
-                <SelectItem key={l} value={l}>{l}</SelectItem>
+              {country.regions.map((region) => (
+                <SelectGroup key={region.state}>
+                  <SelectLabel>{region.state}</SelectLabel>
+                  <SelectItem value={`state:${region.state}`}>All of {region.state} ({region.cities.length})</SelectItem>
+                  {region.cities.map((city) => (
+                    <SelectItem key={city} value={city} className="pl-6">
+                      {city}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
               ))}
             </SelectContent>
           </Select>
@@ -129,7 +168,7 @@ export function AnalyticsContent({ initialData, filterOptions }: AnalyticsConten
           <div className="grid gap-4 sm:grid-cols-2">
             <StatCard
               title="Total Revenue"
-              value={formatCurrency(data.totalRevenue)}
+              value={fmt(data.totalRevenue)}
               icon={IndianRupee}
               accent="teal"
             />
@@ -148,7 +187,7 @@ export function AnalyticsContent({ initialData, filterOptions }: AnalyticsConten
                   <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
                   <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                  <Tooltip formatter={(v: number) => fmt(v)} />
                   <Bar dataKey="revenue" fill="#006F5F" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -172,7 +211,7 @@ export function AnalyticsContent({ initialData, filterOptions }: AnalyticsConten
                       <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                  <Tooltip formatter={(v: number) => fmt(v)} />
                   <Legend />
                 </PieChart>
               </ResponsiveContainer>
@@ -184,7 +223,7 @@ export function AnalyticsContent({ initialData, filterOptions }: AnalyticsConten
                   <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
                   <XAxis type="number" tick={{ fontSize: 11 }} />
                   <YAxis dataKey="name" type="category" width={100} tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                  <Tooltip formatter={(v: number) => fmt(v)} />
                   <Bar dataKey="revenue" fill="#0E8A72" radius={[0, 6, 6, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -196,7 +235,7 @@ export function AnalyticsContent({ initialData, filterOptions }: AnalyticsConten
                   <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
                   <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                  <Tooltip formatter={(v: number) => fmt(v)} />
                   <Line
                     type="monotone"
                     dataKey="revenue"
@@ -221,7 +260,7 @@ export function AnalyticsContent({ initialData, filterOptions }: AnalyticsConten
                       </span>
                       <span className="font-medium">{s.name}</span>
                     </div>
-                    <span className="font-semibold">{formatCurrency(s.revenue)}</span>
+                    <span className="font-semibold">{fmt(s.revenue)}</span>
                   </div>
                 ))}
                 {data.topServices.length === 0 && (

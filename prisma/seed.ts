@@ -1,111 +1,113 @@
-import { PrismaClient, UserRole, UserStatus, ProviderStatus, VerificationStatus, DocStatus, BookingStatus, ReferralStatus, RewardType, RewardStatus } from '@prisma/client';
-import { faker } from '@faker-js/faker';
-import bcrypt from 'bcryptjs';
+import {
+  PrismaClient,
+  UserRole,
+  UserStatus,
+  ProviderStatus,
+  VerificationStatus,
+  DocStatus,
+  BookingStatus,
+  ReferralStatus,
+  RewardType,
+  RewardStatus,
+} from "@prisma/client";
+import { faker } from "@faker-js/faker";
+import bcrypt from "bcryptjs";
+import { serviceCategories, services } from "../src/lib/services-data";
+import { countries } from "../src/lib/countries";
 
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Starting database seed for Neon production...');
+  console.log("🌱 Starting TapTeck database seed...");
 
-  // --- 1. AppSettings (Idempotent 1 Record) ---
-  console.log('Creating App Settings...');
   await prisma.appSettings.upsert({
-    where: { id: 'default-settings' },
+    where: { id: "default-settings" },
     update: {},
     create: {
-      id: 'default-settings',
+      id: "default-settings",
       commissionPercentage: 10.0,
       referralRewardAmount: 100.0,
-      giftRules: {
-        newProvider: 50,
-        fiveStarBonus: 200,
-      },
+      giftRules: { newProvider: 50, fiveStarBonus: 200 },
     },
   });
 
-  // --- 2. Admin User ---
-  console.log('Creating Super Admin...');
-  const adminEmail = 'admin@tapteck.com';
-  const hashedAdminPassword = await bcrypt.hash('Admin@123', 12);
+  console.log("Creating Super Admin...");
+  const adminEmail = "admin@tapteck.com";
+  const hashedAdminPassword = await bcrypt.hash("Admin@123", 12);
 
   await prisma.user.upsert({
     where: { email: adminEmail },
     update: {
       password: hashedAdminPassword,
       role: UserRole.ADMIN,
-      name: 'Super Admin',
+      name: "Super Admin",
       status: UserStatus.ACTIVE,
     },
     create: {
       email: adminEmail,
-      name: 'Super Admin',
+      name: "Super Admin",
       password: hashedAdminPassword,
       role: UserRole.ADMIN,
-      phone: '1234567890',
+      phone: "1234567890",
       status: UserStatus.ACTIVE,
-      referralCode: 'ADMINX99',
+      referralCode: "ADMINX99",
     },
   });
 
-  // --- 3. Categories, Services & SubServices ---
-  console.log('Creating Service Categories & Catalog...');
-  const categoryNames = [
-    'Plumbing', 'Electrical', 'Cleaning', 'Appliance Repair',
-    'Carpentry', 'Pest Control', 'Painting', 'Masonry',
-    'Roofing', 'Landscaping'
-  ];
+  console.log("Creating TapTeck Service Catalog...");
+  const categoryMap = new Map<string, string>();
 
-  const categories = [];
-  for (let i = 0; i < categoryNames.length; i++) {
-    const slug = categoryNames[i].toLowerCase().replace(/\s+/g, '-');
-    const cat = await prisma.serviceCategory.upsert({
-      where: { slug },
-      update: {},
+  for (const cat of serviceCategories.filter((c) => c.id !== "all")) {
+    const record = await prisma.serviceCategory.upsert({
+      where: { slug: cat.id },
+      update: { name: cat.label, isActive: true },
       create: {
-        slug,
-        name: categoryNames[i],
-        description: `Professional ${categoryNames[i]} services`,
-        icon: faker.helpers.arrayElement(['wrench', 'zap', 'sparkles', 'hammer']),
+        slug: cat.id,
+        name: cat.label,
+        description: `${cat.label} services on TapTeck`,
         isActive: true,
       },
     });
-    categories.push(cat);
+    categoryMap.set(cat.id, record.id);
+  }
 
-    // Create 3 Services per Category
-    for (let j = 0; j < 3; j++) {
-      const catalogId = parseInt(`${i + 1}0${j + 1}`);
-      const srvName = `${categoryNames[i]} Service ${j + 1}`;
-      const srv = await prisma.platformService.upsert({
-        where: { catalogId },
-        update: {},
-        create: {
-          catalogId,
-          title: srvName,
-          description: faker.lorem.paragraph(),
-          categoryId: cat.id,
-          isActive: true,
-        },
-      });
+  for (const svc of services) {
+    const categoryId = categoryMap.get(svc.category);
+    if (!categoryId) continue;
 
-      // Create 2 Subservices per Service
-      for (let k = 0; k < 2; k++) {
-        const subName = `${srvName} - Task ${k + 1}`;
+    const platformService = await prisma.platformService.upsert({
+      where: { catalogId: svc.id },
+      update: {
+        title: svc.title,
+        description: svc.description,
+        icon: svc.icon,
+        categoryId,
+        isActive: true,
+      },
+      create: {
+        catalogId: svc.id,
+        title: svc.title,
+        description: svc.description,
+        icon: svc.icon,
+        categoryId,
+        isActive: true,
+      },
+    });
+
+    if (svc.subServices?.length) {
+      for (const sub of svc.subServices) {
         await prisma.subService.upsert({
-          where: { serviceId_name: { serviceId: srv.id, name: subName } },
+          where: { serviceId_name: { serviceId: platformService.id, name: sub } },
           update: {},
-          create: {
-            name: subName,
-            serviceId: srv.id,
-          },
+          create: { name: sub, serviceId: platformService.id },
         });
       }
     }
   }
 
-  // --- 4. Users (20 Customers, 20 Providers) ---
-  console.log('Creating Users and Providers...');
+  console.log("Creating Users and Providers per country...");
   const customers = [];
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 25; i++) {
     const email = `customer${i}@example.com`;
     const user = await prisma.user.upsert({
       where: { email },
@@ -113,141 +115,171 @@ async function main() {
       create: {
         email,
         name: faker.person.fullName(),
-        password: await bcrypt.hash('Password@123', 10),
+        password: await bcrypt.hash("Password@123", 10),
         role: UserRole.USER,
-        phone: faker.phone.number({ style: 'national' }),
-        status: faker.helpers.arrayElement(Object.values(UserStatus)),
-        referralCode: `CUST${faker.string.alphanumeric({ length: 5, casing: 'upper' })}`,
+        phone: faker.phone.number({ style: "national" }),
+        status: UserStatus.ACTIVE,
+        referralCode: `CUST${faker.string.alphanumeric({ length: 5, casing: "upper" })}`,
         createdAt: faker.date.past({ years: 1 }),
       },
     });
     customers.push(user);
   }
 
-  const providers = [];
-  for (let i = 0; i < 20; i++) {
-    const email = `provider${i}@example.com`;
-    const pUser = await prisma.user.upsert({
-      where: { email },
-      update: {},
-      create: {
-        email,
-        name: faker.person.fullName(),
-        password: await bcrypt.hash('Password@123', 10),
-        role: UserRole.PROVIDER,
-        phone: faker.phone.number({ style: 'national' }),
-        status: UserStatus.ACTIVE,
-        referralCode: `PROV${faker.string.alphanumeric({ length: 5, casing: 'upper' })}`,
-        createdAt: faker.date.past({ years: 1 }),
-      },
-    });
+  const providers: Array<{ id: string; serviceCategory: string; country: string }> = [];
 
-    const providerLocation = faker.location.city();
-    const pRecord = await prisma.provider.upsert({
-      where: { userId: pUser.id },
-      update: {},
-      create: {
-        userId: pUser.id,
-        businessName: `${faker.company.name()} ${faker.company.catchPhraseAdjective()}`,
-        description: faker.lorem.paragraph(),
-        serviceCategory: faker.helpers.arrayElement(categoryNames),
-        location: providerLocation,
-        city: providerLocation,
-        state: faker.location.state(),
-        pincode: faker.location.zipCode(),
-        status: ProviderStatus.ACTIVE,
-        verificationStatus: VerificationStatus.VERIFIED,
-        isVerified: true,
-        canReceiveBookings: true,
-        rating: faker.number.float({ min: 3.5, max: 5, multipleOf: 0.1 }),
-        totalReviews: faker.number.int({ min: 5, max: 50 }),
-        completedJobs: faker.number.int({ min: 10, max: 200 }),
-        createdAt: pUser.createdAt,
-      },
-    });
-    providers.push(pRecord);
+  for (const country of countries) {
+    const countryServices = services.filter((s) => country.serviceIds.includes(s.id));
 
-    await prisma.providerVerification.upsert({
-      where: { providerId: pRecord.id },
-      update: {},
-      create: {
-        providerId: pRecord.id,
-        aadhaarStatus: DocStatus.APPROVED,
-        aadhaarNumber: faker.string.numeric(12),
-        panStatus: DocStatus.APPROVED,
-        panNumber: faker.string.alphanumeric({ length: 10, casing: 'upper' }),
-        certificateStatus: DocStatus.APPROVED,
-        addressStatus: DocStatus.APPROVED,
-        profileStatus: DocStatus.APPROVED,
-      },
-    });
-  }
+    for (let i = 0; i < 8; i++) {
+      const email = `provider-${country.code}-${i}@example.com`;
+      const svc = faker.helpers.arrayElement(countryServices);
+      const region = faker.helpers.arrayElement(country.regions);
+      const city = faker.helpers.arrayElement(region.cities);
 
-  // --- 5. Bookings & Reviews (50 minimum) ---
-  console.log('Creating 50 Bookings and Reviews...');
-  const bookings = [];
-  for (let i = 0; i < 50; i++) {
-    const customer = faker.helpers.arrayElement(customers);
-    const provider = faker.helpers.arrayElement(providers);
-    const bNumber = `BKG-${faker.string.alphanumeric({ length: 8, casing: 'upper' })}`;
-
-    // Spread dates over the last 12 months
-    const createdAt = faker.date.past({ years: 1 });
-    const isCompleted = faker.datatype.boolean() || i < 40; // Force most to be completed for dashboard
-    let bStatus = isCompleted ? BookingStatus.COMPLETED : faker.helpers.arrayElement([BookingStatus.PENDING, BookingStatus.IN_PROGRESS, BookingStatus.CANCELLED]);
-
-    const booking = await prisma.booking.upsert({
-      where: { bookingNumber: bNumber },
-      update: {},
-      create: {
-        bookingNumber: bNumber,
-        userId: customer.id,
-        providerId: provider.id,
-        serviceName: `${provider.serviceCategory} Service Call`,
-        serviceCategory: provider.serviceCategory,
-        location: customer.phone ? customer.phone : 'Standard Address', // fallback
-        amount: faker.number.float({ min: 50, max: 1500, multipleOf: 0.01 }),
-        commission: faker.number.float({ min: 5, max: 150, multipleOf: 0.01 }),
-        status: bStatus,
-        scheduledAt: new Date(createdAt.getTime() + 86400000), // Next day
-        completedAt: bStatus === BookingStatus.COMPLETED ? new Date(createdAt.getTime() + 172800000) : null,
-        createdAt: createdAt,
-      },
-    });
-    bookings.push(booking);
-
-    if (bStatus === BookingStatus.COMPLETED && i < 30) {
-      // 30 reviews generated
-      await prisma.review.upsert({
-        where: { bookingId: booking.id },
+      const pUser = await prisma.user.upsert({
+        where: { email },
         update: {},
         create: {
-          bookingId: booking.id,
-          userId: customer.id,
-          providerId: provider.id,
-          rating: faker.number.int({ min: 3, max: 5 }),
-          comment: faker.lorem.sentence(),
-          createdAt: new Date(booking.completedAt!.getTime() + 86400000),
+          email,
+          name: faker.person.fullName(),
+          password: await bcrypt.hash("Password@123", 10),
+          role: UserRole.PROVIDER,
+          phone: faker.phone.number({ style: "national" }),
+          status: UserStatus.ACTIVE,
+          referralCode: `PROV${country.code.toUpperCase()}${i}`,
+          createdAt: faker.date.past({ years: 1 }),
+        },
+      });
+
+      const pRecord = await prisma.provider.upsert({
+        where: { userId: pUser.id },
+        update: { country: country.code },
+        create: {
+          userId: pUser.id,
+          businessName: `${faker.company.name()} — ${svc.title}`,
+          description: svc.description,
+          serviceCategory: svc.category,
+          location: city,
+          city,
+          state: region.state,
+          pincode: faker.location.zipCode(),
+          country: country.code,
+          status: ProviderStatus.ACTIVE,
+          verificationStatus: VerificationStatus.VERIFIED,
+          isVerified: true,
+          canReceiveBookings: true,
+          rating: faker.number.float({ min: 3.5, max: 5, multipleOf: 0.1 }),
+          totalReviews: faker.number.int({ min: 5, max: 50 }),
+          completedJobs: faker.number.int({ min: 10, max: 200 }),
+          createdAt: pUser.createdAt,
+        },
+      });
+
+      providers.push({
+        id: pRecord.id,
+        serviceCategory: svc.category,
+        country: country.code,
+      });
+
+      await prisma.providerVerification.upsert({
+        where: { providerId: pRecord.id },
+        update: {},
+        create: {
+          providerId: pRecord.id,
+          aadhaarStatus: DocStatus.APPROVED,
+          aadhaarNumber: faker.string.numeric(12),
+          panStatus: DocStatus.APPROVED,
+          panNumber: faker.string.alphanumeric({ length: 10, casing: "upper" }),
+          certificateStatus: DocStatus.APPROVED,
+          addressStatus: DocStatus.APPROVED,
+          profileStatus: DocStatus.APPROVED,
         },
       });
     }
   }
 
-  // --- 6. Referrals (20+) ---
-  console.log('Creating Referrals...');
-  for (let i = 0; i < 30; i++) {
+  console.log("Creating Bookings across countries...");
+  let bookingIndex = 0;
+
+  for (const country of countries) {
+    const countryServices = services.filter((s) => country.serviceIds.includes(s.id));
+    const countryProviders = providers.filter((p) => p.country === country.code);
+
+    for (let i = 0; i < 20; i++) {
+      const customer = faker.helpers.arrayElement(customers);
+      const provider = faker.helpers.arrayElement(countryProviders);
+      const svc = faker.helpers.arrayElement(countryServices);
+      const region = faker.helpers.arrayElement(country.regions);
+      const city = faker.helpers.arrayElement(region.cities);
+      const bNumber = `BKG-${country.code.toUpperCase()}-${String(bookingIndex++).padStart(4, "0")}`;
+
+      const createdAt = faker.date.past({ years: 1 });
+      const isCompleted = i < 15;
+      const bStatus = isCompleted
+        ? BookingStatus.COMPLETED
+        : faker.helpers.arrayElement([
+            BookingStatus.PENDING,
+            BookingStatus.IN_PROGRESS,
+            BookingStatus.CANCELLED,
+          ]);
+
+      const subService =
+        svc.subServices && svc.subServices.length > 0
+          ? faker.helpers.arrayElement(svc.subServices)
+          : svc.title;
+
+      const booking = await prisma.booking.upsert({
+        where: { bookingNumber: bNumber },
+        update: { country: country.code },
+        create: {
+          bookingNumber: bNumber,
+          userId: customer.id,
+          providerId: provider.id,
+          serviceName: svc.title,
+          serviceCategory: svc.category,
+          location: city,
+          country: country.code,
+          amount: faker.number.float({ min: 200, max: 5000, multipleOf: 0.01 }),
+          commission: faker.number.float({ min: 20, max: 500, multipleOf: 0.01 }),
+          status: bStatus,
+          scheduledAt: new Date(createdAt.getTime() + 86400000),
+          completedAt:
+            bStatus === BookingStatus.COMPLETED
+              ? new Date(createdAt.getTime() + 172800000)
+              : null,
+          createdAt,
+        },
+      });
+
+      if (bStatus === BookingStatus.COMPLETED && i < 10) {
+        await prisma.review.upsert({
+          where: { bookingId: booking.id },
+          update: {},
+          create: {
+            bookingId: booking.id,
+            userId: customer.id,
+            providerId: provider.id,
+            rating: faker.number.int({ min: 3, max: 5 }),
+            comment: `Great ${subService} service in ${city}!`,
+            createdAt: new Date(booking.completedAt!.getTime() + 86400000),
+          },
+        });
+      }
+    }
+  }
+
+  console.log("Creating Referrals...");
+  for (let i = 0; i < 20; i++) {
     const inviter = faker.helpers.arrayElement(customers);
     const referred = faker.helpers.arrayElement(customers);
-
-    // Prevent self-referral
     if (inviter.id === referred.id) continue;
 
-    const rCode = `REF-${i}`;
     await prisma.referral.upsert({
-      where: { id: rCode }, // using ID as reference point conceptually for upsert
+      where: { id: `REF-${i}` },
       update: {},
       create: {
-        id: rCode,
+        id: `REF-${i}`,
         referralCode: inviter.referralCode || `TEMP${i}`,
         inviterId: inviter.id,
         referredUserId: referred.id,
@@ -258,19 +290,17 @@ async function main() {
     });
   }
 
-  // --- 7. Rewards (20+) ---
-  console.log('Creating Rewards...');
-  for (let i = 0; i < 30; i++) {
+  console.log("Creating Rewards...");
+  for (let i = 0; i < 20; i++) {
     const p = faker.helpers.arrayElement(providers);
-    const rId = `REW-${i}`;
     await prisma.reward.upsert({
-      where: { id: rId },
+      where: { id: `REW-${i}` },
       update: {},
       create: {
-        id: rId,
+        id: `REW-${i}`,
         providerId: p.id,
         type: faker.helpers.arrayElement(Object.values(RewardType)),
-        title: `Bonus Reward for Performance`,
+        title: "Performance Bonus",
         description: faker.lorem.sentence(),
         value: faker.number.float({ min: 10, max: 200, multipleOf: 1 }),
         isAutomatic: true,
@@ -280,12 +310,14 @@ async function main() {
     });
   }
 
-  console.log('✅ Seeding completed perfectly!');
+  console.log(
+    `✅ Seeding complete — ${services.length} services, ${countries.length} countries, ${serviceCategories.length - 1} categories`
+  );
 }
 
 main()
   .catch((e) => {
-    console.error('Error during seeding:', e);
+    console.error("Error during seeding:", e);
     process.exit(1);
   })
   .finally(async () => {

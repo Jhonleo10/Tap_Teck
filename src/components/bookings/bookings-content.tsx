@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useTransition } from "react";
+import { useSearchParams } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import { toast } from "sonner";
 import { Star, CalendarCheck, IndianRupee, MessageSquare } from "lucide-react";
@@ -29,8 +30,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { updateBookingStatus } from "@/actions/bookings";
+import { updateBookingStatus, getBookings } from "@/actions/bookings";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { useCountry } from "@/components/providers/country-provider";
 import type { BookingStatus } from "@prisma/client";
 
 type BookingRow = {
@@ -62,9 +64,21 @@ export function BookingsContent({
   bookings: BookingRow[];
   reviews: ReviewRow[];
 }) {
+  const { countryCode, country, isReady } = useCountry();
+  const searchParams = useSearchParams();
+  const initialSearch = searchParams.get("q") ?? "";
   const [bookingData, setBookingData] = useState(bookings);
   const [reviewData] = useState(reviews);
   const [ratingFilter, setRatingFilter] = useState<string>("all");
+  const [, startTransition] = useTransition();
+
+  useEffect(() => {
+    if (!isReady) return;
+    startTransition(async () => {
+      const data = await getBookings(undefined, countryCode);
+      setBookingData(data as BookingRow[]);
+    });
+  }, [countryCode, isReady]);
 
   const handleBookingStatus = async (id: string, status: BookingStatus) => {
     await updateBookingStatus(id, status);
@@ -277,6 +291,7 @@ export function BookingsContent({
             data={bookingData}
             searchKey="bookingNumber"
             searchPlaceholder="Search bookings..."
+            defaultSearch={initialSearch}
           />
         </TabsContent>
 

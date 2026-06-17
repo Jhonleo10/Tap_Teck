@@ -4,9 +4,12 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import type { ProviderStatus, VerificationStatus } from "@prisma/client";
 
-export async function getProviders(status?: ProviderStatus | "ALL") {
+export async function getProviders(status?: ProviderStatus | "ALL", country?: string) {
   return prisma.provider.findMany({
-    where: status && status !== "ALL" ? { status } : undefined,
+    where: {
+      ...(status && status !== "ALL" ? { status } : {}),
+      ...(country ? { country } : {}),
+    },
     include: {
       user: { select: { name: true, email: true, phone: true } },
       verification: true,

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
+import { CountryProvider } from "@/components/providers/country-provider";
 import { cn } from "@/lib/utils";
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
@@ -10,7 +11,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <div className="relative min-h-screen bg-background">
+    <CountryProvider>
+      <div className="relative min-h-screen bg-background">
       <div className="pointer-events-none fixed inset-0 bg-mesh" />
       <div className="pointer-events-none fixed inset-0 bg-grid-subtle opacity-40" />
 
@@ -33,5 +35,6 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         </main>
       </div>
     </div>
+    </CountryProvider>
   );
 }

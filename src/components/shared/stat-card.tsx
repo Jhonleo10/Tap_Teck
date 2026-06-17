@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { motion } from "framer-motion";
-import { LucideIcon } from "lucide-react";
+import { LucideIcon, ArrowUpRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface StatCardProps {
@@ -13,6 +14,8 @@ interface StatCardProps {
   className?: string;
   delay?: number;
   accent?: "teal" | "emerald" | "amber" | "blue" | "rose" | "orange";
+  href?: string;
+  hint?: string;
 }
 
 const accentStyles = {
@@ -33,8 +36,49 @@ export function StatCard({
   className,
   delay = 0,
   accent = "teal",
+  href,
+  hint = "View details",
 }: StatCardProps) {
   const styles = accentStyles[accent];
+
+  const inner = (
+    <div
+      className={cn(
+        "group relative overflow-hidden rounded-2xl border border-border/50 bg-card p-5 shadow-sm transition-all duration-300",
+        href && "cursor-pointer hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+        className
+      )}
+    >
+      <div className={cn("absolute left-0 top-0 h-1 w-full opacity-90", styles.dot)} />
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            {title}
+          </p>
+          <p className="text-2xl font-bold tracking-tight">{value}</p>
+          {trend && (
+            <p className={cn("text-xs font-medium", trendUp ? "text-emerald-600" : "text-red-500")}>
+              {trend}
+            </p>
+          )}
+          {href && (
+            <p className="flex items-center gap-1 text-xs font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
+              {hint}
+              <ArrowUpRight className="h-3 w-3" />
+            </p>
+          )}
+        </div>
+        <div
+          className={cn(
+            "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br transition-transform group-hover:scale-105",
+            styles.icon
+          )}
+        >
+          <Icon className="h-5 w-5" />
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <motion.div
@@ -42,35 +86,13 @@ export function StatCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: delay * 0.06, duration: 0.4 }}
     >
-      <div
-        className={cn(
-          "group relative overflow-hidden rounded-2xl border border-border/50 bg-card p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md",
-          className
-        )}
-      >
-        <div className={cn("absolute left-0 top-0 h-1 w-full opacity-90", styles.dot)} />
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {title}
-            </p>
-            <p className="text-2xl font-bold tracking-tight">{value}</p>
-            {trend && (
-              <p className={cn("text-xs font-medium", trendUp ? "text-emerald-600" : "text-red-500")}>
-                {trend}
-              </p>
-            )}
-          </div>
-          <div
-            className={cn(
-              "flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br transition-transform group-hover:scale-105",
-              styles.icon
-            )}
-          >
-            <Icon className="h-5 w-5" />
-          </div>
-        </div>
-      </div>
+      {href ? (
+        <Link href={href} className="block rounded-2xl">
+          {inner}
+        </Link>
+      ) : (
+        inner
+      )}
     </motion.div>
   );
 }

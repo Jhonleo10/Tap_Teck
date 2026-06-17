@@ -23,6 +23,7 @@ export function ChartCard({ title, children, className, action }: ChartCardProps
 }
 
 export const CHART_COLORS = [
+  "#004D40",
   "#006F5F",
   "#0E8A72",
   "#14B8A6",
@@ -30,5 +31,10 @@ export const CHART_COLORS = [
   "#6EE7B7",
   "#F59E0B",
   "#EF4444",
-  "#8B5CF6",
 ];
+
+export const BRAND_COLORS = {
+  primary: "#004D40",
+  secondary: "#0E8A72",
+  accent: "#14B8A6",
+};

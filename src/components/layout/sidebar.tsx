@@ -16,11 +16,11 @@ import {
   LogOut,
   X,
   ChevronLeft,
-  Layers,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { BrandLogo } from "@/components/brand/brand-logo";
 
 const navSections = [
   {
@@ -74,30 +74,31 @@ export function Sidebar({ open, collapsed, onClose, onToggleCollapse }: SidebarP
           open ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         )}
       >
-        <div className="flex h-16 items-center justify-between px-4">
-          {!collapsed ? (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-3">
-              <div className="relative flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-400 via-emerald-500 to-teal-600 shadow-lg shadow-emerald-900/40">
-                <Layers className="h-5 w-5 text-white" />
-                <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-highlight ring-2 ring-sidebar" />
-              </div>
-              <div>
-                <p className="text-sm font-bold tracking-tight">TapTeck</p>
-                <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-white/40">
-                  Admin Hub
-                </p>
-              </div>
-            </motion.div>
-          ) : (
-            <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-400 to-emerald-600">
-              <Layers className="h-5 w-5 text-white" />
-            </div>
+        <div
+          className={cn(
+            "flex h-[4.25rem] items-center",
+            collapsed ? "flex-col justify-center gap-1 px-2" : "justify-between px-3"
           )}
-          <div className="flex items-center gap-1">
+        >
+          <Link
+            href="/dashboard"
+            className={cn(
+              "flex min-w-0 items-center transition-opacity hover:opacity-90",
+              !collapsed && "px-1"
+            )}
+            title="TapTeck Admin"
+          >
+            {collapsed ? (
+              <BrandLogo variant="compact" />
+            ) : (
+              <BrandLogo />
+            )}
+          </Link>
+          <div className={cn("flex shrink-0 items-center", collapsed ? "gap-0" : "gap-0.5")}>
             <Button
               variant="ghost"
               size="icon"
-              className="hidden text-white/60 hover:bg-white/10 hover:text-white lg:flex"
+              className="hidden h-8 w-8 text-white/60 hover:bg-white/10 hover:text-white lg:flex"
               onClick={onToggleCollapse}
             >
               <ChevronLeft className={cn("h-4 w-4 transition-transform", collapsed && "rotate-180")} />
@@ -105,7 +106,7 @@ export function Sidebar({ open, collapsed, onClose, onToggleCollapse }: SidebarP
             <Button
               variant="ghost"
               size="icon"
-              className="text-white/60 hover:bg-white/10 hover:text-white lg:hidden"
+              className="h-8 w-8 text-white/60 hover:bg-white/10 hover:text-white lg:hidden"
               onClick={onClose}
             >
               <X className="h-4 w-4" />

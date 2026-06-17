@@ -11,7 +11,7 @@ import {
   SortingState,
   ColumnFiltersState,
 } from "@tanstack/react-table";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Table,
   TableBody,
@@ -32,6 +32,7 @@ interface DataTableProps<TData, TValue> {
   searchKey?: string;
   searchPlaceholder?: string;
   pageSize?: number;
+  defaultSearch?: string;
 }
 
 export function DataTable<TData, TValue>({
@@ -40,10 +41,15 @@ export function DataTable<TData, TValue>({
   searchKey,
   searchPlaceholder = "Search...",
   pageSize = 10,
+  defaultSearch = "",
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
-  const [globalFilter, setGlobalFilter] = useState("");
+  const [globalFilter, setGlobalFilter] = useState(defaultSearch);
+
+  useEffect(() => {
+    if (defaultSearch) setGlobalFilter(defaultSearch);
+  }, [defaultSearch]);
 
   const table = useReactTable({
     data,

@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useTransition } from "react";
+import { useSearchParams } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import { toast } from "sonner";
 import { Briefcase, CheckCircle, Clock, ShieldCheck } from "lucide-react";
@@ -28,8 +29,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { updateProviderStatus, updateVerificationStatus } from "@/actions/providers";
+import { updateProviderStatus, updateVerificationStatus, getProviders } from "@/actions/providers";
 import { formatDate } from "@/lib/utils";
+import { useCountry } from "@/components/providers/country-provider";
 import type { ProviderStatus, VerificationStatus } from "@prisma/client";
 
 type ProviderRow = {
@@ -48,7 +50,19 @@ type ProviderRow = {
 };
 
 export function ProvidersContent({ providers }: { providers: ProviderRow[] }) {
+  const searchParams = useSearchParams();
+  const initialSearch = searchParams.get("q") ?? "";
+  const { countryCode, isReady } = useCountry();
   const [data, setData] = useState(providers);
+  const [, startTransition] = useTransition();
+
+  useEffect(() => {
+    if (!isReady) return;
+    startTransition(async () => {
+      const result = await getProviders(undefined, countryCode);
+      setData(result as ProviderRow[]);
+    });
+  }, [countryCode, isReady]);
 
   const stats = useMemo(() => ({
     active: data.filter((p) => p.status === "ACTIVE").length,
@@ -249,7 +263,7 @@ export function ProvidersContent({ providers }: { providers: ProviderRow[] }) {
           </TabsTrigger>
         </TabsList>
         <TabsContent value="all" className="mt-4">
-          <DataTable columns={columns} data={data} searchKey="businessName" searchPlaceholder="Search providers..." />
+          <DataTable columns={columns} data={data} searchKey="businessName" searchPlaceholder="Search providers..." defaultSearch={initialSearch} />
         </TabsContent>
         <TabsContent value="active" className="mt-4">
           <DataTable columns={columns} data={filterByStatus("ACTIVE")} searchKey="businessName" />

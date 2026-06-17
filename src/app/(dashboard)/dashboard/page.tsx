@@ -1,29 +1,12 @@
-import {
-  getDashboardStats,
-  getRecentBookings,
-  getRevenueTrend,
-  getBookingStatusBreakdown,
-  getCategoryRevenue,
-} from "@/actions/dashboard";
+import { getDashboardData } from "@/actions/dashboard";
 import { DashboardContent } from "@/components/dashboard/dashboard-content";
+import { DEFAULT_COUNTRY } from "@/lib/countries";
 
 export default async function DashboardPage() {
-  const [stats, recentBookings, revenueTrend, bookingStatus, categoryRevenue] =
-    await Promise.all([
-      getDashboardStats(),
-      getRecentBookings(5),
-      getRevenueTrend(7),
-      getBookingStatusBreakdown(),
-      getCategoryRevenue(),
-    ]);
+  const initialData = await getDashboardData({
+    country: DEFAULT_COUNTRY,
+    period: "month",
+  });
 
-  return (
-    <DashboardContent
-      stats={stats}
-      recentBookings={recentBookings}
-      revenueTrend={revenueTrend}
-      bookingStatus={bookingStatus}
-      categoryRevenue={categoryRevenue}
-    />
-  );
+  return <DashboardContent initialData={initialData} />;
 }

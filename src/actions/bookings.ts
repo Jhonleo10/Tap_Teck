@@ -4,9 +4,12 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import type { BookingStatus } from "@prisma/client";
 
-export async function getBookings(status?: BookingStatus | "ALL") {
+export async function getBookings(status?: BookingStatus | "ALL", country?: string) {
   return prisma.booking.findMany({
-    where: status && status !== "ALL" ? { status } : undefined,
+    where: {
+      ...(status && status !== "ALL" ? { status } : {}),
+      ...(country ? { country } : {}),
+    },
     include: {
       user: { select: { name: true, email: true } },
       provider: { select: { businessName: true } },

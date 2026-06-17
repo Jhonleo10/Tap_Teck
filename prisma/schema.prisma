@@ -101,6 +101,7 @@ model Provider {
   city               String?
   state              String?
   pincode            String?
+  country            String             @default("india")
   status             ProviderStatus     @default(PENDING)
   verificationStatus VerificationStatus @default(PENDING)
   isVerified         Boolean            @default(false)
@@ -118,6 +119,7 @@ model Provider {
 
   @@index([status])
   @@index([verificationStatus])
+  @@index([country])
   @@map("providers")
 }
 
@@ -157,6 +159,7 @@ model Booking {
   serviceName     String
   serviceCategory String
   location        String
+  country         String        @default("india")
   amount          Float
   commission      Float         @default(0)
   status          BookingStatus @default(PENDING)
@@ -171,6 +174,7 @@ model Booking {
 
   @@index([status])
   @@index([completedAt])
+  @@index([country])
   @@map("bookings")
 }
 
