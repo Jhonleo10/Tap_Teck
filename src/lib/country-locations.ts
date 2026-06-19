@@ -29,7 +29,7 @@ export const INDIA_REGIONS: CountryRegionData[] = [
   { state: "Sikkim", cities: ["Gangtok", "Namchi", "Gyalshing", "Mangan", "Rangpo"] },
   { state: "Tamil Nadu", cities: ["Chennai", "Coimbatore", "Madurai", "Tiruchirappalli", "Salem", "Tirunelveli", "Erode"] },
   { state: "Telangana", cities: ["Hyderabad", "Warangal", "Nizamabad", "Karimnagar", "Khammam", "Ramagundam"] },
-  { state: "Tripura", cities: ["Agartala", "Udaipur", "Dharmanagar", "Kailashahar", "Belonia"] },
+  { state: "Tripura", cities: ["Agartala", "Udaipur (Tripura)", "Dharmanagar", "Kailashahar", "Belonia"] },
   { state: "Uttar Pradesh", cities: ["Lucknow", "Kanpur", "Ghaziabad", "Agra", "Varanasi", "Meerut", "Prayagraj", "Noida"] },
   { state: "Uttarakhand", cities: ["Dehradun", "Haridwar", "Rishikesh", "Haldwani", "Roorkee", "Nainital"] },
   { state: "West Bengal", cities: ["Kolkata", "Howrah", "Durgapur", "Asansol", "Siliguri", "Darjeeling", "Kharagpur"] },

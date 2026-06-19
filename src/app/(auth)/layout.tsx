@@ -11,7 +11,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       <div className="relative w-full max-w-[420px]">
         <div className="mb-8 text-center">
           <div className="mx-auto mb-5 flex justify-center">
-            <BrandLogo className="h-12 px-4 shadow-lg" />
+            <BrandLogo className="h-12 sm:h-14" />
           </div>
           <p className="mt-2 text-sm text-muted-foreground">
             Manage your marketplace — providers, bookings & services

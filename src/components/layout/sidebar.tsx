@@ -16,6 +16,8 @@ import {
   LogOut,
   X,
   ChevronLeft,
+  Bell,
+  ScrollText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -43,6 +45,8 @@ const navSections = [
     label: "Growth",
     items: [
       { href: "/referrals", label: "Referrals", icon: Gift },
+      { href: "/notifications", label: "Notifications", icon: Bell },
+      { href: "/audit-logs", label: "Audit Logs", icon: ScrollText },
       { href: "/settings", label: "Settings", icon: Settings },
     ],
   },
@@ -84,15 +88,11 @@ export function Sidebar({ open, collapsed, onClose, onToggleCollapse }: SidebarP
             href="/dashboard"
             className={cn(
               "flex min-w-0 items-center transition-opacity hover:opacity-90",
-              !collapsed && "px-1"
+              collapsed ? "justify-center w-full" : "px-1"
             )}
             title="TapTeck Admin"
           >
-            {collapsed ? (
-              <BrandLogo variant="compact" />
-            ) : (
-              <BrandLogo />
-            )}
+            <BrandLogo variant={collapsed ? "compact" : "full"} onDarkBackground />
           </Link>
           <div className={cn("flex shrink-0 items-center", collapsed ? "gap-0" : "gap-0.5")}>
             <Button

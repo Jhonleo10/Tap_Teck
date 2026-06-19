@@ -2,19 +2,78 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
+import { resolveLocationCities, type CountryCode } from "@/lib/countries";
 import type { ProviderStatus, VerificationStatus } from "@prisma/client";
 
-export async function getProviders(status?: ProviderStatus | "ALL", country?: string) {
+export interface ProviderFilters {
+  status?: ProviderStatus | "ALL";
+  verificationStatus?: VerificationStatus | "ALL";
+  category?: string;
+  service?: string;
+  location?: string;
+  country?: string;
+  search?: string;
+}
+
+function buildLocationWhere(country: string | undefined, location?: string) {
+  if (!location || location === "all") return {};
+
+  const cities =
+    country && location.startsWith("state:")
+      ? resolveLocationCities(country as CountryCode, location)
+      : [location];
+
+  return {
+    OR: [
+      { city: { in: cities } },
+      { location: { in: cities } },
+      ...(location.startsWith("state:")
+        ? [{ state: location.slice(6) }]
+        : []),
+    ],
+  };
+}
+
+export async function getProviders(filters: ProviderFilters = {}) {
+  const {
+    status,
+    verificationStatus,
+    category,
+    service,
+    location,
+    country,
+    search,
+  } = filters;
+
   return prisma.provider.findMany({
     where: {
       ...(status && status !== "ALL" ? { status } : {}),
+      ...(verificationStatus && verificationStatus !== "ALL"
+        ? { verificationStatus }
+        : {}),
+      ...(category && category !== "all" ? { serviceCategory: category } : {}),
+      ...(service && service !== "all" ? { primaryService: service } : {}),
       ...(country ? { country } : {}),
+      ...buildLocationWhere(country, location),
+      ...(search
+        ? {
+          OR: [
+            { businessName: { contains: search, mode: "insensitive" } },
+            { serviceCategory: { contains: search, mode: "insensitive" } },
+            { location: { contains: search, mode: "insensitive" } },
+            { city: { contains: search, mode: "insensitive" } },
+            { user: { name: { contains: search, mode: "insensitive" } } },
+            { user: { email: { contains: search, mode: "insensitive" } } },
+          ],
+        }
+        : {}),
     },
     include: {
       user: { select: { name: true, email: true, phone: true } },
       verification: true,
     },
     orderBy: { createdAt: "desc" },
+    take: 500,
   });
 }
 
@@ -31,6 +90,7 @@ export async function getProvidersByVerification(
       verification: true,
     },
     orderBy: { createdAt: "desc" },
+    take: 500,
   });
 }
 

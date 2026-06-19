@@ -22,6 +22,7 @@ import { StatCard } from "@/components/shared/stat-card";
 import { ChartCard, CHART_COLORS } from "@/components/shared/chart-card";
 import { DataTable } from "@/components/shared/data-table";
 import { ExportButtons } from "@/components/shared/export-buttons";
+import { ListFilterBar } from "@/components/shared/list-filter-bar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -33,12 +34,17 @@ import {
 import { updateBookingStatus, getBookings } from "@/actions/bookings";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useCountry } from "@/components/providers/country-provider";
+import {
+  getCountrySubServiceOptions,
+  getCountryServicesByCategory,
+} from "@/lib/catalog";
 import type { BookingStatus } from "@prisma/client";
 
 type BookingRow = {
   id: string;
   bookingNumber: string;
   serviceName: string;
+  subServiceName: string | null;
   location: string;
   amount: number;
   status: BookingStatus;
@@ -64,20 +70,40 @@ export function BookingsContent({
   bookings: BookingRow[];
   reviews: ReviewRow[];
 }) {
-  const { countryCode, country, isReady } = useCountry();
+  const { countryCode, country, services, isReady } = useCountry();
   const searchParams = useSearchParams();
   const initialSearch = searchParams.get("q") ?? "";
   const [bookingData, setBookingData] = useState(bookings);
   const [reviewData] = useState(reviews);
   const [ratingFilter, setRatingFilter] = useState<string>("all");
+  const [serviceFilter, setServiceFilter] = useState<string>("all");
+  const [subServiceFilter, setSubServiceFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [, startTransition] = useTransition();
+
+  const subServiceOptions = useMemo(
+    () => getCountrySubServiceOptions(countryCode, serviceFilter),
+    [countryCode, serviceFilter]
+  );
+
+  const filteredBookings = useMemo(() => {
+    return bookingData.filter((booking) => {
+      if (statusFilter !== "all" && booking.status !== statusFilter) return false;
+      if (serviceFilter !== "all" && booking.serviceName !== serviceFilter) return false;
+      if (subServiceFilter !== "all" && booking.subServiceName !== subServiceFilter) return false;
+      return true;
+    });
+  }, [bookingData, statusFilter, serviceFilter, subServiceFilter]);
 
   useEffect(() => {
     if (!isReady) return;
     startTransition(async () => {
-      const data = await getBookings(undefined, countryCode);
+      const data = await getBookings({ country: countryCode });
       setBookingData(data as BookingRow[]);
     });
+    setServiceFilter("all");
+    setSubServiceFilter("all");
+    setStatusFilter("all");
   }, [countryCode, isReady]);
 
   const handleBookingStatus = async (id: string, status: BookingStatus) => {
@@ -95,12 +121,12 @@ export function BookingsContent({
 
   const statusChart = useMemo(() => {
     const counts: Record<string, number> = {};
-    bookingData.forEach((b) => {
+    filteredBookings.forEach((b) => {
       const key = b.status.replace("_", " ");
       counts[key] = (counts[key] ?? 0) + 1;
     });
     return Object.entries(counts).map(([name, value]) => ({ name, value }));
-  }, [bookingData]);
+  }, [filteredBookings]);
 
   const ratingChart = useMemo(() => {
     const counts = [1, 2, 3, 4, 5].map((r) => ({
@@ -110,7 +136,7 @@ export function BookingsContent({
     return counts;
   }, [reviewData]);
 
-  const totalRevenue = bookingData
+  const totalRevenue = filteredBookings
     .filter((b) => b.status === "COMPLETED")
     .reduce((sum, b) => sum + b.amount, 0);
   const avgRating =
@@ -126,6 +152,9 @@ export function BookingsContent({
       cell: ({ row }) => (
         <div>
           <p>{row.original.serviceName}</p>
+          {row.original.subServiceName && (
+            <p className="text-xs text-muted-foreground">{row.original.subServiceName}</p>
+          )}
           <p className="text-xs text-muted-foreground">{row.original.location}</p>
         </div>
       ),
@@ -220,13 +249,20 @@ export function BookingsContent({
     },
   ];
 
+  const resetBookingFilters = () => {
+    setServiceFilter("all");
+    setSubServiceFilter("all");
+    setStatusFilter("all");
+  };
+
   return (
     <div className="space-y-6">
-      <PageHeader title="Bookings & Reviews" description="Track service bookings and customer ratings across all categories" badge="Operations">
+      <PageHeader title="Bookings & Reviews" description={`${country.flag} ${country.name} — Track bookings across ${services.length} TapTeck services`} badge="Operations">
         <ExportButtons
-          data={bookingData.map((b) => ({
+          data={filteredBookings.map((b) => ({
             bookingNumber: b.bookingNumber,
             service: b.serviceName,
+            subService: b.subServiceName ?? "",
             customer: b.user.name ?? b.user.email,
             provider: b.provider.businessName,
             amount: b.amount,
@@ -237,7 +273,7 @@ export function BookingsContent({
       </PageHeader>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard title="Total Bookings" value={bookingData.length} icon={CalendarCheck} accent="teal" />
+        <StatCard title="Total Bookings" value={filteredBookings.length} icon={CalendarCheck} accent="teal" />
         <StatCard title="Completed Revenue" value={formatCurrency(totalRevenue)} icon={IndianRupee} accent="emerald" />
         <StatCard title="Total Reviews" value={reviewData.length} icon={MessageSquare} accent="blue" />
         <StatCard title="Avg Rating" value={avgRating} icon={Star} accent="amber" />
@@ -281,17 +317,62 @@ export function BookingsContent({
 
       <Tabs defaultValue="bookings">
         <TabsList>
-          <TabsTrigger value="bookings">Bookings ({bookingData.length})</TabsTrigger>
+          <TabsTrigger value="bookings">Bookings ({filteredBookings.length})</TabsTrigger>
           <TabsTrigger value="reviews">Reviews ({reviewData.length})</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="bookings" className="mt-4">
+        <TabsContent value="bookings" className="mt-4 space-y-4">
+          <ListFilterBar
+            description={`${services.length} services · ${getCountryServicesByCategory(countryCode, "all").reduce((n, s) => n + (s.subServices?.length ?? 1), 0)} bookable options`}
+            resultCount={filteredBookings.length}
+            onReset={resetBookingFilters}
+            filters={[
+              {
+                id: "status",
+                label: "Status",
+                value: statusFilter,
+                onChange: setStatusFilter,
+                options: [
+                  { value: "all", label: "All Statuses" },
+                  { value: "PENDING", label: "Pending" },
+                  { value: "CONFIRMED", label: "Confirmed" },
+                  { value: "IN_PROGRESS", label: "In Progress" },
+                  { value: "COMPLETED", label: "Completed" },
+                  { value: "CANCELLED", label: "Cancelled" },
+                ],
+              },
+              {
+                id: "service",
+                label: "Service",
+                value: serviceFilter,
+                onChange: (value) => {
+                  setServiceFilter(value);
+                  setSubServiceFilter("all");
+                },
+                options: [
+                  { value: "all", label: "All Services" },
+                  ...services.map((s) => ({ value: s.title, label: s.title })),
+                ],
+              },
+              {
+                id: "subService",
+                label: "Sub-Service",
+                value: subServiceFilter,
+                onChange: setSubServiceFilter,
+                options: [
+                  { value: "all", label: "All Sub-Services" },
+                  ...subServiceOptions.map((sub) => ({ value: sub, label: sub })),
+                ],
+              },
+            ]}
+          />
           <DataTable
             columns={bookingColumns}
-            data={bookingData}
-            searchKey="bookingNumber"
+            data={filteredBookings}
+            searchKeys={["bookingNumber", "serviceName", "subServiceName", "location"]}
             searchPlaceholder="Search bookings..."
             defaultSearch={initialSearch}
+            defaultSorting={[{ id: "createdAt", desc: true }]}
           />
         </TabsContent>
 
@@ -314,8 +395,9 @@ export function BookingsContent({
           <DataTable
             columns={reviewColumns}
             data={filteredReviews}
-            searchKey="comment"
+            searchKeys={["comment", "user.name", "user.email", "provider.businessName"]}
             searchPlaceholder="Search reviews..."
+            defaultSorting={[{ id: "createdAt", desc: true }]}
           />
         </TabsContent>
       </Tabs>

@@ -1,7 +1,8 @@
-import { getProvidersByVerification } from "@/actions/providers";
+import { getVerificationProviders } from "@/actions/verification";
 import { VerificationContent } from "@/components/verification/verification-content";
 
 export default async function VerificationPage() {
-  const providers = await getProvidersByVerification();
-  return <VerificationContent providers={providers} />;
+  const data = await getVerificationProviders({ page: 1, pageSize: 5 });
+
+  return <VerificationContent initialData={data} />;
 }

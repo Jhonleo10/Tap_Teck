@@ -1,38 +1,51 @@
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 
+/** Intrinsic dimensions of public/logo.png (transparent PNG) */
+export const LOGO_WIDTH = 855;
+export const LOGO_HEIGHT = 536;
+
 interface BrandLogoProps {
   className?: string;
-  /** compact square mark for collapsed sidebar */
+  /** Smaller mark for collapsed sidebar — same asset, scaled down */
   variant?: "full" | "compact";
+  /** Boost visibility on dark surfaces (e.g. sidebar) */
+  onDarkBackground?: boolean;
 }
 
 /**
- * Exact TapTeck brand logo (PNG). White surface keeps the logo crisp and
- * visible on dark sidebar and light/dark themes without altering the asset.
+ * TapTeck wordmark — transparent background, locked aspect ratio for crisp scaling.
  */
-export function BrandLogo({ className, variant = "full" }: BrandLogoProps) {
+export function BrandLogo({
+  className,
+  variant = "full",
+  onDarkBackground = false,
+}: BrandLogoProps) {
   const isCompact = variant === "compact";
 
   return (
-    <div
+    <span
       className={cn(
-        "flex shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white shadow-md ring-1 ring-black/5",
-        isCompact ? "h-10 w-10 p-1.5" : "h-10 min-w-0 px-3",
+        "relative inline-block shrink-0 select-none",
+        "aspect-[855/536] w-auto max-w-full",
+        isCompact ? "h-8 min-h-8" : "h-9 min-h-9 sm:h-10",
         className
       )}
     >
       <Image
         src="/logo.png"
         alt="TapTeck"
-        width={isCompact ? 32 : 128}
-        height={isCompact ? 32 : 36}
-        className={cn(
-          "object-contain",
-          isCompact ? "h-full w-full" : "h-7 w-auto max-w-[128px]"
-        )}
+        fill
         priority
+        quality={100}
+        sizes={isCompact ? "48px" : "(max-width: 768px) 120px, 150px"}
+        className={cn(
+          "object-contain object-center",
+          onDarkBackground && "brightness-[1.85] contrast-[1.05]",
+          "dark:brightness-[1.85] dark:contrast-[1.05]"
+        )}
+        draggable={false}
       />
-    </div>
+    </span>
   );
 }

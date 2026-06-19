@@ -12,10 +12,14 @@ import {
   endOfYear,
 } from "date-fns";
 import {
-  getCountryServiceNames,
+  getCountryCategories,
   resolveLocationCities,
   type CountryCode,
 } from "@/lib/countries";
+import {
+  getCountryServiceTitles,
+  getCountrySubServiceOptions,
+} from "@/lib/catalog";
 
 type Period = "day" | "week" | "month" | "year";
 
@@ -40,7 +44,7 @@ export async function getAnalyticsData(
   country = "india"
 ) {
   const dateRange = getDateRange(period);
-  const countryServices = getCountryServiceNames(country as CountryCode);
+  const countryServices = getCountryServiceTitles(country as CountryCode);
   const locationWhere = location
     ? (() => {
         const cities = resolveLocationCities(country as CountryCode, location);
@@ -114,30 +118,19 @@ export async function getAnalyticsData(
 }
 
 export async function getFilterOptions(country = "india") {
-  const countryServices = getCountryServiceNames(country as Parameters<typeof getCountryServiceNames>[0]);
-
-  const [services, locations, categories] = await Promise.all([
-    prisma.booking.findMany({
-      where: { country, ...(countryServices.length ? { serviceName: { in: countryServices } } : {}) },
-      select: { serviceName: true },
-      distinct: ["serviceName"],
-    }),
-    prisma.booking.findMany({
-      where: { country },
-      select: { location: true },
-      distinct: ["location"],
-    }),
-    prisma.serviceCategory.findMany({ where: { isActive: true } }),
-  ]);
-
-  const serviceNames =
-    services.length > 0
-      ? services.map((s) => s.serviceName)
-      : countryServices;
+  const code = country as CountryCode;
+  const serviceTitles = getCountryServiceTitles(code);
+  const subServices = getCountrySubServiceOptions(code);
+  const locations = await prisma.booking.findMany({
+    where: { country },
+    select: { location: true },
+    distinct: ["location"],
+  });
 
   return {
-    services: serviceNames,
+    services: serviceTitles,
+    subServices,
     locations: locations.map((l) => l.location),
-    categories: categories.map((c) => c.name),
+    categories: getCountryCategories(code).map((c) => c.label),
   };
 }

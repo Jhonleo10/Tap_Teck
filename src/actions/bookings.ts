@@ -2,13 +2,32 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
+import { getCountryServiceTitles } from "@/lib/catalog";
+import type { CountryCode } from "@/lib/countries";
 import type { BookingStatus } from "@prisma/client";
 
-export async function getBookings(status?: BookingStatus | "ALL", country?: string) {
+export interface BookingFilters {
+  status?: BookingStatus | "ALL";
+  country?: string;
+  service?: string;
+  subService?: string;
+}
+
+export async function getBookings(filters: BookingFilters = {}) {
+  const { status, country, service, subService } = filters;
+  const countryServices = country
+    ? getCountryServiceTitles(country as CountryCode)
+    : [];
+
   return prisma.booking.findMany({
     where: {
       ...(status && status !== "ALL" ? { status } : {}),
       ...(country ? { country } : {}),
+      ...(service && service !== "all" ? { serviceName: service } : {}),
+      ...(subService && subService !== "all" ? { subServiceName: subService } : {}),
+      ...(countryServices.length && !service
+        ? { serviceName: { in: countryServices } }
+        : {}),
     },
     include: {
       user: { select: { name: true, email: true } },
@@ -16,6 +35,7 @@ export async function getBookings(status?: BookingStatus | "ALL", country?: stri
       review: true,
     },
     orderBy: { createdAt: "desc" },
+    take: 500,
   });
 }
 

@@ -14,6 +14,7 @@ import { faker } from "@faker-js/faker";
 import bcrypt from "bcryptjs";
 import { serviceCategories, services } from "../src/lib/services-data";
 import { countries } from "../src/lib/countries";
+import { syncServiceCatalog } from "../src/lib/sync-catalog";
 
 const prisma = new PrismaClient();
 
@@ -55,55 +56,7 @@ async function main() {
   });
 
   console.log("Creating TapTeck Service Catalog...");
-  const categoryMap = new Map<string, string>();
-
-  for (const cat of serviceCategories.filter((c) => c.id !== "all")) {
-    const record = await prisma.serviceCategory.upsert({
-      where: { slug: cat.id },
-      update: { name: cat.label, isActive: true },
-      create: {
-        slug: cat.id,
-        name: cat.label,
-        description: `${cat.label} services on TapTeck`,
-        isActive: true,
-      },
-    });
-    categoryMap.set(cat.id, record.id);
-  }
-
-  for (const svc of services) {
-    const categoryId = categoryMap.get(svc.category);
-    if (!categoryId) continue;
-
-    const platformService = await prisma.platformService.upsert({
-      where: { catalogId: svc.id },
-      update: {
-        title: svc.title,
-        description: svc.description,
-        icon: svc.icon,
-        categoryId,
-        isActive: true,
-      },
-      create: {
-        catalogId: svc.id,
-        title: svc.title,
-        description: svc.description,
-        icon: svc.icon,
-        categoryId,
-        isActive: true,
-      },
-    });
-
-    if (svc.subServices?.length) {
-      for (const sub of svc.subServices) {
-        await prisma.subService.upsert({
-          where: { serviceId_name: { serviceId: platformService.id, name: sub } },
-          update: {},
-          create: { name: sub, serviceId: platformService.id },
-        });
-      }
-    }
-  }
+  await syncServiceCatalog(prisma);
 
   console.log("Creating Users and Providers per country...");
   const customers = [];
@@ -154,21 +107,22 @@ async function main() {
 
       const pRecord = await prisma.provider.upsert({
         where: { userId: pUser.id },
-        update: { country: country.code },
+        update: { country: country.code, primaryService: svc.title, serviceCategory: svc.category },
         create: {
           userId: pUser.id,
           businessName: `${faker.company.name()} — ${svc.title}`,
           description: svc.description,
           serviceCategory: svc.category,
+          primaryService: svc.title,
           location: city,
           city,
           state: region.state,
           pincode: faker.location.zipCode(),
           country: country.code,
           status: ProviderStatus.ACTIVE,
-          verificationStatus: VerificationStatus.VERIFIED,
-          isVerified: true,
-          canReceiveBookings: true,
+          verificationStatus: i < 2 ? VerificationStatus.PENDING : VerificationStatus.VERIFIED,
+          isVerified: i >= 2,
+          canReceiveBookings: i >= 2,
           rating: faker.number.float({ min: 3.5, max: 5, multipleOf: 0.1 }),
           totalReviews: faker.number.int({ min: 5, max: 50 }),
           completedJobs: faker.number.int({ min: 10, max: 200 }),
@@ -184,16 +138,27 @@ async function main() {
 
       await prisma.providerVerification.upsert({
         where: { providerId: pRecord.id },
-        update: {},
+        update: {
+          aadhaarDocUrl: `https://picsum.photos/seed/aadhaar-${country.code}-${i}/900/560`,
+          panDocUrl: `https://picsum.photos/seed/pan-${country.code}-${i}/900/560`,
+          certificateUrl: `https://picsum.photos/seed/cert-${country.code}-${i}/900/560`,
+          addressProofUrl: `https://picsum.photos/seed/addr-${country.code}-${i}/900/560`,
+          profilePhotoUrl: `https://picsum.photos/seed/profile-${country.code}-${i}/400/400`,
+        },
         create: {
           providerId: pRecord.id,
-          aadhaarStatus: DocStatus.APPROVED,
+          aadhaarStatus: i < 2 ? DocStatus.PENDING : DocStatus.APPROVED,
           aadhaarNumber: faker.string.numeric(12),
-          panStatus: DocStatus.APPROVED,
+          aadhaarDocUrl: `https://picsum.photos/seed/aadhaar-${country.code}-${i}/900/560`,
+          panStatus: i < 2 ? DocStatus.PENDING : DocStatus.APPROVED,
           panNumber: faker.string.alphanumeric({ length: 10, casing: "upper" }),
-          certificateStatus: DocStatus.APPROVED,
+          panDocUrl: `https://picsum.photos/seed/pan-${country.code}-${i}/900/560`,
+          certificateStatus: i === 1 ? DocStatus.REUPLOAD_REQUESTED : DocStatus.APPROVED,
+          certificateUrl: `https://picsum.photos/seed/cert-${country.code}-${i}/900/560`,
           addressStatus: DocStatus.APPROVED,
+          addressProofUrl: `https://picsum.photos/seed/addr-${country.code}-${i}/900/560`,
           profileStatus: DocStatus.APPROVED,
+          profilePhotoUrl: `https://picsum.photos/seed/profile-${country.code}-${i}/400/400`,
         },
       });
     }
@@ -231,12 +196,13 @@ async function main() {
 
       const booking = await prisma.booking.upsert({
         where: { bookingNumber: bNumber },
-        update: { country: country.code },
+        update: { country: country.code, subServiceName: subService },
         create: {
           bookingNumber: bNumber,
           userId: customer.id,
           providerId: provider.id,
           serviceName: svc.title,
+          subServiceName: subService,
           serviceCategory: svc.category,
           location: city,
           country: country.code,

@@ -16,12 +16,12 @@ import {
   updateCommission,
   updateReferralReward,
   updateGiftRules,
-  createServiceCategory,
+  syncCatalogFromSource,
   toggleServiceCategory,
   deleteServiceCategory,
   togglePlatformService,
 } from "@/actions/settings";
-import { services, getTotalSubServiceCount } from "@/lib/services-data";
+import { getCatalogStats } from "@/lib/catalog";
 import { cn } from "@/lib/utils";
 
 type Settings = {
@@ -61,18 +61,14 @@ export function SettingsContent({
     new Set(initialCategories.slice(0, 2).map((c) => c.id))
   );
   const [expandedServices, setExpandedServices] = useState<Set<string>>(new Set());
-  const [newCategory, setNewCategory] = useState("");
   const [commission, setCommission] = useState(settings.commissionPercentage);
   const [referralReward, setReferralReward] = useState(settings.referralRewardAmount);
   const [giftRules, setGiftRules] = useState(
     JSON.stringify(settings.giftRules ?? { minRating: 4.5, minJobs: 50 }, null, 2)
   );
 
-  const totalServices = categories.reduce((s, c) => s + c.services.length, 0);
-  const totalSubs = categories.reduce(
-    (s, c) => s + c.services.reduce((ss, svc) => ss + svc.subServices.length, 0),
-    0
-  );
+
+  const catalogStats = getCatalogStats();
 
   const saveCommission = async () => {
     await updateCommission(commission);
@@ -93,11 +89,10 @@ export function SettingsContent({
     }
   };
 
-  const addCategory = async () => {
-    if (!newCategory.trim()) return;
-    await createServiceCategory(newCategory.trim());
-    toast.success("Category added — refresh to see it");
-    setNewCategory("");
+  const syncCatalog = async () => {
+    await syncCatalogFromSource();
+    toast.success("Service catalog synced from platform source");
+    window.location.reload();
   };
 
   const toggleCategory = async (id: string, isActive: boolean) => {
@@ -150,9 +145,9 @@ export function SettingsContent({
       />
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard title="Categories" value={categories.length} icon={Layers} accent="teal" />
-        <StatCard title="Services" value={totalServices || services.length} icon={Layers} accent="emerald" />
-        <StatCard title="Sub-Services" value={totalSubs || getTotalSubServiceCount()} icon={Layers} accent="orange" />
+        <StatCard title="Categories" value={catalogStats.categories} icon={Layers} accent="teal" />
+        <StatCard title="Services" value={catalogStats.services} icon={Layers} accent="emerald" />
+        <StatCard title="Sub-Services" value={catalogStats.subServices} icon={Layers} accent="orange" />
       </div>
 
       <Tabs defaultValue="catalog">
@@ -165,7 +160,13 @@ export function SettingsContent({
         </TabsList>
 
         <TabsContent value="catalog" className="mt-4 space-y-4">
-          {categories.map((cat) => (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/60 bg-muted/20 px-4 py-3">
+            <p className="text-sm text-muted-foreground">
+              Catalog is managed from the TapTeck platform service list (17 services, all sub-services).
+            </p>
+            <Button size="sm" onClick={syncCatalog}>Sync Catalog</Button>
+          </div>
+          {categories.filter((cat) => cat.slug).map((cat) => (
             <Card key={cat.id} className="overflow-hidden">
               <button
                 type="button"
@@ -313,21 +314,15 @@ export function SettingsContent({
         <TabsContent value="categories" className="mt-4">
           <Card>
             <CardHeader>
-              <CardTitle>Manage Categories</CardTitle>
-              <CardDescription>Add or toggle service categories</CardDescription>
+              <CardTitle>Catalog Categories</CardTitle>
+              <CardDescription>
+                Categories are defined by the TapTeck platform catalog. Use Sync Catalog to refresh from source.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex gap-2">
-                <Input
-                  placeholder="New category name"
-                  value={newCategory}
-                  onChange={(e) => setNewCategory(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && addCategory()}
-                />
-                <Button onClick={addCategory}>Add</Button>
-              </div>
+              <Button onClick={syncCatalog}>Sync Catalog from Source</Button>
               <div className="space-y-2">
-                {categories.map((cat) => (
+                {categories.filter((cat) => cat.slug).map((cat) => (
                   <div
                     key={cat.id}
                     className={cn(

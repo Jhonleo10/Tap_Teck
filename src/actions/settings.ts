@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
+import { syncServiceCatalog } from "@/lib/sync-catalog";
 
 export async function getSettings() {
   let settings = await prisma.appSettings.findFirst();
@@ -59,6 +60,12 @@ export async function updateGiftRules(rules: Prisma.InputJsonValue) {
       data: { giftRules: rules },
     });
   }
+  revalidatePath("/settings");
+  return { success: true };
+}
+
+export async function syncCatalogFromSource() {
+  await syncServiceCatalog(prisma);
   revalidatePath("/settings");
   return { success: true };
 }

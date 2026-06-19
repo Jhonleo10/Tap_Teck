@@ -19,6 +19,7 @@ import { StatCard } from "@/components/shared/stat-card";
 import { ChartCard } from "@/components/shared/chart-card";
 import { DataTable } from "@/components/shared/data-table";
 import { ExportButtons } from "@/components/shared/export-buttons";
+import { ListFilterBar } from "@/components/shared/list-filter-bar";
 import {
   Select,
   SelectContent,
@@ -45,6 +46,17 @@ export function UsersContent({ users }: { users: UserRow[] }) {
   const searchParams = useSearchParams();
   const initialSearch = searchParams.get("q") ?? "";
   const [data, setData] = useState(users);
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [activityFilter, setActivityFilter] = useState<string>("all");
+
+  const filteredData = useMemo(() => {
+    return data.filter((user) => {
+      if (statusFilter !== "all" && user.status !== statusFilter) return false;
+      if (activityFilter === "with_bookings" && user._count.bookings === 0) return false;
+      if (activityFilter === "no_bookings" && user._count.bookings > 0) return false;
+      return true;
+    });
+  }, [data, statusFilter, activityFilter]);
 
   const stats = useMemo(() => ({
     active: data.filter((u) => u.status === "ACTIVE").length,
@@ -54,7 +66,7 @@ export function UsersContent({ users }: { users: UserRow[] }) {
 
   const growthChart = useMemo(() => {
     const months: Record<string, number> = {};
-    data.forEach((u) => {
+    filteredData.forEach((u) => {
       const key = new Date(u.createdAt).toLocaleDateString("en-IN", {
         month: "short",
         year: "2-digit",
@@ -64,12 +76,17 @@ export function UsersContent({ users }: { users: UserRow[] }) {
     return Object.entries(months)
       .map(([month, users]) => ({ month, users }))
       .slice(-6);
-  }, [data]);
+  }, [filteredData]);
 
   const handleStatusChange = async (id: string, status: UserStatus) => {
     await updateUserStatus(id, status);
     setData((prev) => prev.map((u) => (u.id === id ? { ...u, status } : u)));
     toast.success("User status updated");
+  };
+
+  const resetFilters = () => {
+    setStatusFilter("all");
+    setActivityFilter("all");
   };
 
   const columns: ColumnDef<UserRow>[] = [
@@ -110,10 +127,11 @@ export function UsersContent({ users }: { users: UserRow[] }) {
       accessorKey: "createdAt",
       header: "Joined",
       cell: ({ row }) => formatDate(row.original.createdAt),
+      sortingFn: "datetime",
     },
   ];
 
-  const exportData = data.map((u) => ({
+  const exportData = filteredData.map((u) => ({
     name: u.name ?? "",
     email: u.email,
     phone: u.phone ?? "",
@@ -162,12 +180,44 @@ export function UsersContent({ users }: { users: UserRow[] }) {
         </ChartCard>
       )}
 
+      <ListFilterBar
+        description="Filter by account status and booking activity"
+        resultCount={filteredData.length}
+        onReset={resetFilters}
+        filters={[
+          {
+            id: "status",
+            label: "Status",
+            value: statusFilter,
+            onChange: setStatusFilter,
+            options: [
+              { value: "all", label: "All Statuses" },
+              { value: "ACTIVE", label: "Active" },
+              { value: "INACTIVE", label: "Inactive" },
+              { value: "SUSPENDED", label: "Suspended" },
+            ],
+          },
+          {
+            id: "activity",
+            label: "Activity",
+            value: activityFilter,
+            onChange: setActivityFilter,
+            options: [
+              { value: "all", label: "All Users" },
+              { value: "with_bookings", label: "With Bookings" },
+              { value: "no_bookings", label: "No Bookings" },
+            ],
+          },
+        ]}
+      />
+
       <DataTable
         columns={columns}
-        data={data}
-        searchKey="name"
-        searchPlaceholder="Search users..."
+        data={filteredData}
+        searchKeys={["name", "email", "phone", "referralCode"]}
+        searchPlaceholder="Search by name, email, phone, or referral code..."
         defaultSearch={initialSearch}
+        defaultSorting={[{ id: "createdAt", desc: true }]}
       />
     </div>
   );

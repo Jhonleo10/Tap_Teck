@@ -20,8 +20,8 @@ import { StatCard } from "@/components/shared/stat-card";
 import { ChartCard, CHART_COLORS } from "@/components/shared/chart-card";
 import { DataTable } from "@/components/shared/data-table";
 import { ExportButtons } from "@/components/shared/export-buttons";
+import { ListFilterBar } from "@/components/shared/list-filter-bar";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -32,13 +32,19 @@ import {
 import { updateProviderStatus, updateVerificationStatus, getProviders } from "@/actions/providers";
 import { formatDate } from "@/lib/utils";
 import { useCountry } from "@/components/providers/country-provider";
+import { getCountryCategories, getLocationDisplayLabel } from "@/lib/countries";
+import { getCountryServicesByCategory } from "@/lib/catalog";
+import type { ServiceCategoryId } from "@/lib/services-data";
 import type { ProviderStatus, VerificationStatus } from "@prisma/client";
 
 type ProviderRow = {
   id: string;
   businessName: string;
   serviceCategory: string;
+  primaryService: string | null;
   location: string;
+  city: string | null;
+  state: string | null;
   status: ProviderStatus;
   verificationStatus: VerificationStatus;
   isVerified: boolean;
@@ -52,17 +58,63 @@ type ProviderRow = {
 export function ProvidersContent({ providers }: { providers: ProviderRow[] }) {
   const searchParams = useSearchParams();
   const initialSearch = searchParams.get("q") ?? "";
-  const { countryCode, isReady } = useCountry();
+  const { countryCode, country, locationOptions, isReady } = useCountry();
   const [data, setData] = useState(providers);
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [verificationFilter, setVerificationFilter] = useState<string>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [serviceFilter, setServiceFilter] = useState<string>("all");
+  const [locationFilter, setLocationFilter] = useState<string>("all");
   const [, startTransition] = useTransition();
+
+  const categories = useMemo(
+    () => getCountryCategories(countryCode),
+    [countryCode]
+  );
+
+  const catalogServices = useMemo(
+    () =>
+      getCountryServicesByCategory(
+        countryCode,
+        categoryFilter === "all"
+          ? "all"
+          : (categoryFilter as Exclude<ServiceCategoryId, "all">)
+      ),
+    [countryCode, categoryFilter]
+  );
 
   useEffect(() => {
     if (!isReady) return;
     startTransition(async () => {
-      const result = await getProviders(undefined, countryCode);
+      const result = await getProviders({ country: countryCode });
       setData(result as ProviderRow[]);
     });
+    setStatusFilter("all");
+    setVerificationFilter("all");
+    setCategoryFilter("all");
+    setServiceFilter("all");
+    setLocationFilter("all");
   }, [countryCode, isReady]);
+
+  const filteredData = useMemo(() => {
+    return data.filter((provider) => {
+      if (statusFilter !== "all" && provider.status !== statusFilter) return false;
+      if (verificationFilter !== "all" && provider.verificationStatus !== verificationFilter) {
+        return false;
+      }
+      if (categoryFilter !== "all" && provider.serviceCategory !== categoryFilter) return false;
+      if (serviceFilter !== "all" && provider.primaryService !== serviceFilter) return false;
+      if (locationFilter !== "all") {
+        if (locationFilter.startsWith("state:")) {
+          const stateName = locationFilter.slice(6);
+          if (provider.state !== stateName) return false;
+        } else if (provider.city !== locationFilter && provider.location !== locationFilter) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [data, statusFilter, verificationFilter, categoryFilter, serviceFilter, locationFilter]);
 
   const stats = useMemo(() => ({
     active: data.filter((p) => p.status === "ACTIVE").length,
@@ -73,21 +125,13 @@ export function ProvidersContent({ providers }: { providers: ProviderRow[] }) {
 
   const categoryChart = useMemo(() => {
     const counts: Record<string, number> = {};
-    data.forEach((p) => {
-      counts[p.serviceCategory] = (counts[p.serviceCategory] ?? 0) + 1;
+    filteredData.forEach((p) => {
+      const label =
+        categories.find((c) => c.id === p.serviceCategory)?.label ?? p.serviceCategory;
+      counts[label] = (counts[label] ?? 0) + 1;
     });
     return Object.entries(counts).map(([name, count]) => ({ name, count }));
-  }, [data]);
-
-  const filterByStatus = (status: ProviderStatus | "ALL") => {
-    if (status === "ALL") return data;
-    return data.filter((p) => p.status === status);
-  };
-
-  const filterByVerification = (status: VerificationStatus | "ALL") => {
-    if (status === "ALL") return data;
-    return data.filter((p) => p.verificationStatus === status);
-  };
+  }, [filteredData, categories]);
 
   const handleStatusChange = async (id: string, status: ProviderStatus) => {
     await updateProviderStatus(id, status);
@@ -121,6 +165,14 @@ export function ProvidersContent({ providers }: { providers: ProviderRow[] }) {
     toast.success("Verification status updated");
   };
 
+  const resetFilters = () => {
+    setStatusFilter("all");
+    setVerificationFilter("all");
+    setCategoryFilter("all");
+    setServiceFilter("all");
+    setLocationFilter("all");
+  };
+
   const columns: ColumnDef<ProviderRow>[] = [
     {
       accessorKey: "businessName",
@@ -132,7 +184,15 @@ export function ProvidersContent({ providers }: { providers: ProviderRow[] }) {
         </div>
       ),
     },
-    { accessorKey: "serviceCategory", header: "Category" },
+    { accessorKey: "serviceCategory", header: "Category", cell: ({ row }) => {
+        const label = categories.find((c) => c.id === row.original.serviceCategory)?.label;
+        return label ?? row.original.serviceCategory;
+      }},
+    {
+      accessorKey: "primaryService",
+      header: "Service",
+      cell: ({ row }) => row.original.primaryService ?? "—",
+    },
     { accessorKey: "location", header: "Location" },
     {
       accessorKey: "status",
@@ -194,16 +254,22 @@ export function ProvidersContent({ providers }: { providers: ProviderRow[] }) {
     },
   ];
 
-  const exportData = data.map((p) => ({
+  const exportData = filteredData.map((p) => ({
     businessName: p.businessName,
     email: p.user.email,
-    category: p.serviceCategory,
+    category: categories.find((c) => c.id === p.serviceCategory)?.label ?? p.serviceCategory,
+    service: p.primaryService ?? "",
     location: p.location,
     status: p.status,
     verification: p.verificationStatus,
     rating: p.rating,
     jobs: p.completedJobs,
   }));
+
+  const locationFilterDescription =
+    locationFilter !== "all"
+      ? getLocationDisplayLabel(countryCode, locationFilter)
+      : undefined;
 
   return (
     <div className="space-y-6">
@@ -215,6 +281,7 @@ export function ProvidersContent({ providers }: { providers: ProviderRow[] }) {
             { key: "businessName", label: "Business" },
             { key: "email", label: "Email" },
             { key: "category", label: "Category" },
+            { key: "service", label: "Service" },
             { key: "location", label: "Location" },
             { key: "status", label: "Status" },
             { key: "verification", label: "Verification" },
@@ -249,32 +316,83 @@ export function ProvidersContent({ providers }: { providers: ProviderRow[] }) {
         </ChartCard>
       )}
 
-      <Tabs defaultValue="all">
-        <TabsList>
-          <TabsTrigger value="all">All ({data.length})</TabsTrigger>
-          <TabsTrigger value="active">
-            Active ({filterByStatus("ACTIVE").length})
-          </TabsTrigger>
-          <TabsTrigger value="inactive">
-            Inactive ({filterByStatus("INACTIVE").length})
-          </TabsTrigger>
-          <TabsTrigger value="pending">
-            Pending ({filterByVerification("PENDING").length})
-          </TabsTrigger>
-        </TabsList>
-        <TabsContent value="all" className="mt-4">
-          <DataTable columns={columns} data={data} searchKey="businessName" searchPlaceholder="Search providers..." defaultSearch={initialSearch} />
-        </TabsContent>
-        <TabsContent value="active" className="mt-4">
-          <DataTable columns={columns} data={filterByStatus("ACTIVE")} searchKey="businessName" />
-        </TabsContent>
-        <TabsContent value="inactive" className="mt-4">
-          <DataTable columns={columns} data={filterByStatus("INACTIVE")} searchKey="businessName" />
-        </TabsContent>
-        <TabsContent value="pending" className="mt-4">
-          <DataTable columns={columns} data={filterByVerification("PENDING")} searchKey="businessName" />
-        </TabsContent>
-      </Tabs>
+      <ListFilterBar
+        description={`${country.flag} ${country.name}${locationFilterDescription ? ` · ${locationFilterDescription}` : ""}`}
+        resultCount={filteredData.length}
+        onReset={resetFilters}
+        filters={[
+          {
+            id: "status",
+            label: "Status",
+            value: statusFilter,
+            onChange: setStatusFilter,
+            options: [
+              { value: "all", label: "All Statuses" },
+              { value: "ACTIVE", label: "Active" },
+              { value: "INACTIVE", label: "Inactive" },
+              { value: "PENDING", label: "Pending" },
+            ],
+          },
+          {
+            id: "verification",
+            label: "Verification",
+            value: verificationFilter,
+            onChange: setVerificationFilter,
+            options: [
+              { value: "all", label: "All Verification" },
+              { value: "PENDING", label: "Pending" },
+              { value: "UNDER_REVIEW", label: "Under Review" },
+              { value: "VERIFIED", label: "Verified" },
+              { value: "REJECTED", label: "Rejected" },
+            ],
+          },
+          {
+            id: "category",
+            label: "Category",
+            value: categoryFilter,
+            onChange: (value) => {
+              setCategoryFilter(value);
+              setServiceFilter("all");
+            },
+            options: [
+              { value: "all", label: "All Categories" },
+              ...categories.map((c) => ({ value: c.id, label: c.label })),
+            ],
+          },
+          {
+            id: "service",
+            label: "Service",
+            value: serviceFilter,
+            onChange: setServiceFilter,
+            options: [
+              { value: "all", label: "All Services" },
+              ...catalogServices.map((s) => ({ value: s.title, label: s.title })),
+            ],
+          },
+          {
+            id: "location",
+            label: "Location",
+            value: locationFilter,
+            onChange: setLocationFilter,
+            options: [
+              { value: "all", label: "All Locations" },
+              ...locationOptions.map((opt) => ({
+                value: opt.value,
+                label: opt.type === "state" ? `All of ${opt.label}` : opt.label,
+              })),
+            ],
+          },
+        ]}
+      />
+
+      <DataTable
+        columns={columns}
+        data={filteredData}
+        searchKeys={["businessName", "user.email", "user.name", "primaryService", "serviceCategory", "location", "city"]}
+        searchPlaceholder="Search by business, service, email, or location..."
+        defaultSearch={initialSearch}
+        defaultSorting={[{ id: "createdAt", desc: true }]}
+      />
     </div>
   );
 }

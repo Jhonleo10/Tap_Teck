@@ -7,7 +7,11 @@ export const authConfig = {
     signIn: "/login",
     error: "/login",
   },
-  session: { strategy: "jwt" },
+  session: {
+    strategy: "jwt",
+    maxAge: 24 * 60 * 60,       // 24 hours — auto-logout after 24h
+    updateAge: 24 * 60 * 60,    // Don't silently extend; refresh only on first load
+  },
   providers: [],
   callbacks: {
     authorized({ auth, request: { nextUrl } }) {
@@ -25,9 +29,18 @@ export const authConfig = {
     },
     async jwt({ token, user }) {
       if (user) {
+        // First sign-in: stamp the login time
         token.id = user.id!;
         token.role = user.role;
+        token.loginAt = Date.now();
       }
+
+      // Hard 24-hour expiry — force logout regardless of activity
+      const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+      if (token.loginAt && Date.now() - (token.loginAt as number) > TWENTY_FOUR_HOURS) {
+        return null; // Returning null invalidates the session
+      }
+
       return token;
     },
     async session({ session, token }) {

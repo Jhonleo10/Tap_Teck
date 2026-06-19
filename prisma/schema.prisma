@@ -33,6 +33,8 @@ model User {
   referralsMade     Referral[] @relation("Inviter")
   referralsReceived Referral[] @relation("Referred")
   rewards           Reward[]
+  notifications     Notification[]
+  auditLogs         AuditLog[]       @relation("AdminAuditLogs")
 
   @@map("users")
 }
@@ -97,6 +99,7 @@ model Provider {
   businessName       String
   description        String?            @db.Text
   serviceCategory    String
+  primaryService     String?
   location           String
   city               String?
   state              String?
@@ -116,6 +119,8 @@ model Provider {
   verification ProviderVerification?
   bookings     Booking[]
   reviews      Review[]
+  messages     VerificationMessage[]
+  notifications Notification[]
 
   @@index([status])
   @@index([verificationStatus])
@@ -137,6 +142,8 @@ model ProviderVerification {
   addressStatus     DocStatus @default(PENDING)
   addressProofUrl   String?
   profileStatus     DocStatus @default(PENDING)
+  profilePhotoUrl   String?
+  documentNotes     Json?
   rejectionReason   String?   @db.Text
   reviewedBy        String?
   reviewedAt        DateTime?
@@ -157,6 +164,7 @@ model Booking {
   userId          String
   providerId      String
   serviceName     String
+  subServiceName  String?
   serviceCategory String
   location        String
   country         String        @default("india")
@@ -284,6 +292,66 @@ model SubService {
   @@map("sub_services")
 }
 
+// ─── Verification Messages ─────────────────────────────────────────
+
+model VerificationMessage {
+  id           String   @id @default(cuid())
+  providerId   String
+  documentType String?
+  message      String   @db.Text
+  action       String
+  isAutomated  Boolean  @default(true)
+  adminId      String?
+  adminName    String?
+  createdAt    DateTime @default(now())
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@index([providerId, createdAt])
+  @@map("verification_messages")
+}
+
+// ─── Notifications ─────────────────────────────────────────────────
+
+model Notification {
+  id         String   @id @default(cuid())
+  userId     String?
+  providerId String?
+  title      String
+  body       String   @db.Text
+  type       String
+  channel    String   @default("IN_APP")
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  user     User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider Provider? @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@index([providerId, read])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// ─── Audit Logs ────────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  action     String
+  entityType String
+  entityId   String
+  adminId    String?
+  adminName  String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  admin User? @relation("AdminAuditLogs", fields: [adminId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
+
 // ─── Enums ─────────────────────────────────────────────────────────
 
 enum UserRole {
@@ -315,6 +383,7 @@ enum DocStatus {
   PENDING
   APPROVED
   REJECTED
+  REUPLOAD_REQUESTED
 }
 
 enum BookingStatus {

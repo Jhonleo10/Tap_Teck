@@ -12,6 +12,7 @@ const statusVariants: Record<string, "default" | "secondary" | "destructive" | "
   INACTIVE: "secondary",
   CANCELLED: "destructive",
   REJECTED: "destructive",
+  REUPLOAD_REQUESTED: "warning",
   SUSPENDED: "destructive",
   EXPIRED: "secondary",
 };

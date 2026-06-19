@@ -19,7 +19,10 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "TapTeck Admin Portal",
   description: "Production-ready admin dashboard for TapTeck service marketplace",
-  icons: { icon: "/logo.png", apple: "/logo.png" },
+  icons: {
+    icon: [{ url: "/logo.png", type: "image/png", sizes: "855x536" }],
+    apple: [{ url: "/logo.png", type: "image/png", sizes: "855x536" }],
+  },
 };
 
 export default function RootLayout({
