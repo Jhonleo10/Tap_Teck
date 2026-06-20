@@ -58,14 +58,14 @@ export function DocumentActionDialog({
   const preview =
     documentType && action
       ? buildAutomatedMessage(
-          action === "APPROVED"
-            ? "DOC_APPROVED"
-            : action === "REJECTED"
-              ? "DOC_REJECTED"
-              : "DOC_REUPLOAD_REQUESTED",
-          documentType,
-          note
-        ).body
+        action === "APPROVED"
+          ? "DOC_APPROVED"
+          : action === "REJECTED"
+            ? "DOC_REJECTED"
+            : "DOC_REUPLOAD_REQUESTED",
+        documentType,
+        note
+      ).body
       : "";
 
   return (
@@ -85,16 +85,47 @@ export function DocumentActionDialog({
         </DialogHeader>
 
         {action !== "APPROVED" && (
-          <div className="space-y-2">
-            <Label htmlFor="doc-note">Message to provider (optional)</Label>
-            <Textarea
-              id="doc-note"
-              placeholder="Add specific instructions for the provider..."
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              rows={3}
-              className="rounded-xl resize-none"
-            />
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor="doc-note">Message to provider (optional)</Label>
+              <Textarea
+                id="doc-note"
+                placeholder="Add specific instructions for the provider..."
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                rows={3}
+                className="rounded-xl resize-none"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                className="text-xs h-7 rounded-lg bg-muted/60 hover:bg-muted"
+                onClick={() => setNote("The uploaded image is blurry or unclear. Please re-upload a clearer picture where all details are visible.")}
+                type="button"
+              >
+                Unclear Image
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="text-xs h-7 rounded-lg bg-muted/60 hover:bg-muted"
+                onClick={() => setNote("The document appears to be expired. Please upload a current, valid document.")}
+                type="button"
+              >
+                Expired Document
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="text-xs h-7 rounded-lg bg-muted/60 hover:bg-muted"
+                onClick={() => setNote("The uploaded document is missing required information or pages.")}
+                type="button"
+              >
+                Missing Details
+              </Button>
+            </div>
           </div>
         )}
 
