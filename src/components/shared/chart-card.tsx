@@ -1,6 +1,7 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 interface ChartCardProps {
@@ -8,16 +9,30 @@ interface ChartCardProps {
   children: React.ReactNode;
   className?: string;
   action?: React.ReactNode;
+  loading?: boolean;
 }
 
-export function ChartCard({ title, children, className, action }: ChartCardProps) {
+export function ChartCard({ title, children, className, action, loading }: ChartCardProps) {
   return (
-    <Card className={cn("overflow-hidden border-border/60 shadow-sm", className)}>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-base font-semibold">{title}</CardTitle>
+    <Card
+      className={cn(
+        "overflow-hidden border-border/40 bg-card/80 shadow-sm backdrop-blur-sm transition-shadow duration-300 hover:shadow-md",
+        className
+      )}
+    >
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 border-b border-border/30 bg-muted/20 pb-3">
+        <CardTitle className="text-sm font-semibold tracking-tight">{title}</CardTitle>
         {action}
       </CardHeader>
-      <CardContent>{children}</CardContent>
+      <CardContent className="pt-4">
+        {loading ? (
+          <div className="space-y-3 py-4">
+            <Skeleton className="h-[220px] w-full rounded-xl" />
+          </div>
+        ) : (
+          children
+        )}
+      </CardContent>
     </Card>
   );
 }
@@ -27,14 +42,14 @@ export const CHART_COLORS = [
   "#006F5F",
   "#0E8A72",
   "#14B8A6",
+  "#22C55E",
   "#34D399",
   "#6EE7B7",
   "#F59E0B",
-  "#EF4444",
 ];
 
 export const BRAND_COLORS = {
-  primary: "#004D40",
+  primary: "#006F5F",
   secondary: "#0E8A72",
-  accent: "#14B8A6",
+  accent: "#22C55E",
 };

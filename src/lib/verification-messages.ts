@@ -7,7 +7,8 @@ export type VerificationMessageAction =
   | "DOC_REUPLOAD_REQUESTED"
   | "PROVIDER_UNDER_REVIEW"
   | "PROVIDER_VERIFIED"
-  | "PROVIDER_REJECTED";
+  | "PROVIDER_REJECTED"
+  | "REVIEW_SUBMITTED";
 
 export function buildAutomatedMessage(
   action: VerificationMessageAction,
@@ -55,6 +56,15 @@ export function buildAutomatedMessage(
           customNote?.trim() ||
           "Your provider verification was declined. Please review the messages for each document and re-submit where requested.",
       };
+    case "REVIEW_SUBMITTED": {
+      const rejectedNote = customNote?.trim();
+      return {
+        title: "Verification Review Complete",
+        body:
+          rejectedNote ||
+          "Your documents have been reviewed. Check the TapTeck app for any items that need re-upload.",
+      };
+    }
     default:
       return { title: "Verification Update", body: "Your verification status has been updated." };
   }

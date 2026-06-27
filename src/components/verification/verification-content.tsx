@@ -1,62 +1,19 @@
 "use client";
 
 import { useCallback, useState, useTransition } from "react";
-import { toast } from "sonner";
-import {
-  CheckCircle,
-  XCircle,
-  Clock,
-  FileText,
-  Eye,
-  RotateCcw,
-  MessageSquare,
-  AlertCircle,
-} from "lucide-react";
+import { Search, Shield, Clock, CheckCircle2, XCircle, FileCheck } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
-import { StatusBadge } from "@/components/shared/status-badge";
+import { StatCard } from "@/components/shared/stat-card";
 import { PaginationControls } from "@/components/shared/pagination-controls";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
 import { DocumentViewer } from "@/components/verification/document-viewer";
-import {
-  DocumentActionDialog,
-  type DocumentAction,
-} from "@/components/verification/document-action-dialog";
-import {
-  getVerificationProviders,
-  reviewDocument,
-  updateProviderVerificationStatus,
-} from "@/actions/verification";
-import {
-  VERIFICATION_DOCUMENTS,
-  canAdminReviewDoc,
-  type DocumentType,
-} from "@/lib/verification-documents";
-import { formatDate } from "@/lib/utils";
-import type { DocStatus, VerificationStatus } from "@prisma/client";
+import { ProviderReviewCard } from "@/components/verification/provider-review-card";
+import { getVerificationProviders } from "@/actions/verification";
+import type { VerificationStatus } from "@prisma/client";
 import type { getVerificationProviders as GetVerificationProviders } from "@/actions/verification";
 
 type VerificationData = Awaited<ReturnType<typeof GetVerificationProviders>>;
-type ProviderItem = VerificationData["items"][number];
-
-function DocStatusIcon({ status }: { status: DocStatus }) {
-  if (status === "APPROVED") return <CheckCircle className="h-4 w-4 text-emerald-500" />;
-  if (status === "REJECTED") return <XCircle className="h-4 w-4 text-red-500" />;
-  if (status === "REUPLOAD_REQUESTED")
-    return <RotateCcw className="h-4 w-4 text-orange-500" />;
-  return <Clock className="h-4 w-4 text-amber-500" />;
-}
 
 export function VerificationContent({
   initialData,
@@ -64,7 +21,7 @@ export function VerificationContent({
   initialData: VerificationData;
 }) {
   const [data, setData] = useState(initialData);
-  const [tab, setTab] = useState<string>("all");
+  const [tab, setTab] = useState<string>("pending");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(initialData.page);
   const [pageSize, setPageSize] = useState(initialData.pageSize);
@@ -74,17 +31,7 @@ export function VerificationContent({
     title: string;
     url: string | null;
     number?: string | null;
-  } | null>(null);
-
-  const [actionDialog, setActionDialog] = useState<{
-    providerId: string;
-    documentType: DocumentType;
-    action: DocumentAction;
-  } | null>(null);
-
-  const [rejectProvider, setRejectProvider] = useState<{
-    providerId: string;
-    reason: string;
+    onViewed?: () => void;
   } | null>(null);
 
   const statusFilter: VerificationStatus | "ALL" =
@@ -99,7 +46,12 @@ export function VerificationContent({
             : "REJECTED";
 
   const fetchData = useCallback(
-    (overrides?: { page?: number; pageSize?: number; status?: VerificationStatus | "ALL"; q?: string }) => {
+    (overrides?: {
+      page?: number;
+      pageSize?: number;
+      status?: VerificationStatus | "ALL";
+      q?: string;
+    }) => {
       startTransition(async () => {
         const result = await getVerificationProviders({
           page: overrides?.page ?? page,
@@ -133,233 +85,6 @@ export function VerificationContent({
     fetchData({ page: 1, q: value });
   };
 
-  const handleDocAction = async (note?: string) => {
-    if (!actionDialog) return;
-    await reviewDocument({
-      providerId: actionDialog.providerId,
-      documentType: actionDialog.documentType,
-      status: actionDialog.action,
-      note,
-    });
-    toast.success(`Document ${actionDialog.action.replace("_", " ").toLowerCase()}`);
-    fetchData();
-  };
-
-  const handleProviderStatus = async (
-    providerId: string,
-    status: VerificationStatus,
-    reason?: string
-  ) => {
-    try {
-      await updateProviderVerificationStatus({
-        providerId,
-        verificationStatus: status,
-        rejectionReason: reason,
-      });
-      toast.success(`Provider marked as ${status.replace("_", " ").toLowerCase()}`);
-      fetchData();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Action failed");
-    }
-  };
-
-  const getDocUrl = (
-    verification: ProviderItem["verification"],
-    urlField: keyof import("@/lib/verification-documents").DocumentUrlFields | null
-  ) => {
-    if (!verification || !urlField) return null;
-    return verification[urlField as keyof typeof verification] as string | null;
-  };
-
-  const getDocNote = (
-    verification: ProviderItem["verification"],
-    docType: DocumentType
-  ) => {
-    const notes = verification?.documentNotes;
-    if (notes && typeof notes === "object" && !Array.isArray(notes)) {
-      return (notes as Record<string, string>)[docType];
-    }
-    return null;
-  };
-
-  const renderProviderCard = (provider: ProviderItem) => (
-    <Card key={provider.id} className="overflow-hidden border-border/60 shadow-sm">
-      <CardHeader className="flex flex-row items-start justify-between gap-4 bg-muted/20 pb-4">
-        <div className="min-w-0">
-          <CardTitle className="text-lg truncate">{provider.businessName}</CardTitle>
-          <p className="text-sm text-muted-foreground truncate">
-            {provider.user.name} · {provider.user.email}
-          </p>
-          <p className="text-xs text-muted-foreground mt-1">
-            Applied {formatDate(provider.createdAt)}
-          </p>
-        </div>
-        <StatusBadge status={provider.verificationStatus} />
-      </CardHeader>
-
-      <CardContent className="space-y-5 pt-5">
-        {provider.verification ? (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {VERIFICATION_DOCUMENTS.map((doc) => {
-              const status = provider.verification![doc.statusField];
-              const url = getDocUrl(provider.verification, doc.urlField);
-              const number = doc.numberField
-                ? provider.verification![doc.numberField]
-                : null;
-              const note = getDocNote(provider.verification, doc.type);
-
-              return (
-                <div
-                  key={doc.type}
-                  className="flex flex-col gap-3 rounded-xl border border-border/50 bg-muted/10 p-4"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <FileText className="h-4 w-4 shrink-0 text-primary" />
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">{doc.label}</p>
-                        {number && (
-                          <p className="text-xs text-muted-foreground truncate">{number}</p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <DocStatusIcon status={status} />
-                      <StatusBadge status={status} />
-                    </div>
-                  </div>
-
-                  {note && (
-                    <p className="text-xs text-muted-foreground rounded-lg bg-muted/40 p-2">
-                      {note}
-                    </p>
-                  )}
-
-                  <div className="flex flex-wrap gap-1.5">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-8 rounded-lg text-xs"
-                      onClick={() =>
-                        setViewer({ title: doc.label, url, number })
-                      }
-                    >
-                      <Eye className="mr-1 h-3.5 w-3.5" />
-                      View
-                    </Button>
-                    {canAdminReviewDoc(status) && (
-                      <>
-                        <Button
-                          size="sm"
-                          className="h-8 rounded-lg text-xs bg-emerald-600 hover:bg-emerald-700"
-                          onClick={() =>
-                            setActionDialog({
-                              providerId: provider.id,
-                              documentType: doc.type,
-                              action: "APPROVED",
-                            })
-                          }
-                        >
-                          Approve
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-8 rounded-lg text-xs text-orange-600 border-orange-200 hover:bg-orange-50 dark:hover:bg-orange-950/30"
-                          onClick={() =>
-                            setActionDialog({
-                              providerId: provider.id,
-                              documentType: doc.type,
-                              action: "REUPLOAD_REQUESTED",
-                            })
-                          }
-                        >
-                          <RotateCcw className="mr-1 h-3.5 w-3.5" />
-                          Re-upload
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 rounded-lg text-xs text-red-600"
-                          onClick={() =>
-                            setActionDialog({
-                              providerId: provider.id,
-                              documentType: doc.type,
-                              action: "REJECTED",
-                            })
-                          }
-                        >
-                          Reject
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 rounded-xl border border-dashed p-6 text-muted-foreground">
-            <AlertCircle className="h-5 w-5" />
-            <p className="text-sm">No verification documents submitted yet</p>
-          </div>
-        )}
-
-        {provider.messages.length > 0 && (
-          <div className="rounded-xl border border-border/50 bg-muted/10 p-4">
-            <div className="mb-3 flex items-center gap-2 text-sm font-medium">
-              <MessageSquare className="h-4 w-4 text-primary" />
-              Recent messages to provider
-            </div>
-            <ul className="space-y-2">
-              {provider.messages.map((msg) => (
-                <li
-                  key={msg.id}
-                  className="rounded-lg bg-background/60 px-3 py-2 text-sm"
-                >
-                  <p className="text-xs text-muted-foreground mb-1">
-                    {formatDate(msg.createdAt)} · {msg.action.replace(/_/g, " ")}
-                    {msg.isAutomated ? " · Automated" : ""}
-                  </p>
-                  <p className="leading-relaxed">{msg.message}</p>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        <div className="flex flex-wrap gap-2 border-t border-border/50 pt-4">
-          <Button
-            size="sm"
-            variant="outline"
-            className="rounded-lg"
-            disabled={provider.verificationStatus === "UNDER_REVIEW" || isPending}
-            onClick={() => handleProviderStatus(provider.id, "UNDER_REVIEW")}
-          >
-            Under Review
-          </Button>
-          <Button
-            size="sm"
-            className="rounded-lg"
-            disabled={provider.verificationStatus === "VERIFIED" || isPending}
-            onClick={() => handleProviderStatus(provider.id, "VERIFIED")}
-          >
-            Verify Provider
-          </Button>
-          <Button
-            size="sm"
-            variant="destructive"
-            className="rounded-lg"
-            disabled={provider.verificationStatus === "REJECTED" || isPending}
-            onClick={() => setRejectProvider({ providerId: provider.id, reason: "" })}
-          >
-            Reject Provider
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-
   const counts = data.statusCounts;
   const totalAll = Object.values(counts).reduce((sum, n) => sum + (n ?? 0), 0);
 
@@ -367,34 +92,122 @@ export function VerificationContent({
     <div className="space-y-6">
       <PageHeader
         title="Verification Center"
-        description="Review KYC documents, request re-uploads, and verify providers before they receive bookings"
+        description="Review each document individually, then submit the full verification report"
         badge="Compliance"
       />
 
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <StatCard
+          title="Total providers"
+          value={totalAll}
+          icon={Shield}
+          className="border-primary/20"
+        />
+        <StatCard
+          title="Pending"
+          value={counts.PENDING ?? 0}
+          icon={Clock}
+          className="border-amber-500/20"
+        />
+        <StatCard
+          title="Under review"
+          value={counts.UNDER_REVIEW ?? 0}
+          icon={FileCheck}
+          className="border-blue-500/20"
+        />
+        <StatCard
+          title="Verified"
+          value={counts.VERIFIED ?? 0}
+          icon={CheckCircle2}
+          className="border-emerald-500/20"
+        />
+        <StatCard
+          title="Rejected"
+          value={counts.REJECTED ?? 0}
+          icon={XCircle}
+          className="border-red-500/20"
+        />
+      </div>
+
+      <div className="grid gap-3 rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/[0.07] via-background to-background p-4 sm:grid-cols-3">
+        {[
+          {
+            step: "1",
+            title: "Open & review",
+            desc: "Click each document to open the viewer and review the upload",
+          },
+          {
+            step: "2",
+            title: "Accept or reject",
+            desc: "After reviewing, accept or reject with a built-in or custom message",
+          },
+          {
+            step: "3",
+            title: "Submit report",
+            desc: "Submit once all documents are reviewed — rejected docs go back for re-upload only",
+          },
+        ].map((item) => (
+          <div
+            key={item.step}
+            className="flex gap-3 rounded-xl border border-border/40 bg-background/80 p-4 shadow-sm"
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground shadow-sm">
+              {item.step}
+            </span>
+            <div>
+              <p className="text-sm font-semibold">{item.title}</p>
+              <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{item.desc}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
       <div className="relative max-w-md">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          placeholder="Search providers..."
+          placeholder="Search by business name, provider name, or email…"
           value={search}
           onChange={(e) => handleSearch(e.target.value)}
-          className="rounded-xl"
+          className="rounded-xl pl-9"
         />
       </div>
 
       <Tabs value={tab} onValueChange={handleTabChange}>
-        <TabsList className="flex-wrap h-auto gap-1">
-          <TabsTrigger value="all">All ({totalAll})</TabsTrigger>
-          <TabsTrigger value="pending">Pending ({counts.PENDING ?? 0})</TabsTrigger>
-          <TabsTrigger value="review">Under Review ({counts.UNDER_REVIEW ?? 0})</TabsTrigger>
-          <TabsTrigger value="verified">Verified ({counts.VERIFIED ?? 0})</TabsTrigger>
-          <TabsTrigger value="rejected">Rejected ({counts.REJECTED ?? 0})</TabsTrigger>
+        <TabsList className="h-auto flex-wrap gap-1 rounded-xl bg-muted/50 p-1">
+          <TabsTrigger value="pending" className="rounded-lg">
+            Pending ({counts.PENDING ?? 0})
+          </TabsTrigger>
+          <TabsTrigger value="review" className="rounded-lg">
+            Under Review ({counts.UNDER_REVIEW ?? 0})
+          </TabsTrigger>
+          <TabsTrigger value="verified" className="rounded-lg">
+            Verified ({counts.VERIFIED ?? 0})
+          </TabsTrigger>
+          <TabsTrigger value="rejected" className="rounded-lg">
+            Rejected ({counts.REJECTED ?? 0})
+          </TabsTrigger>
+          <TabsTrigger value="all" className="rounded-lg">
+            All ({totalAll})
+          </TabsTrigger>
         </TabsList>
 
-        <TabsContent value={tab} className="mt-4 space-y-4">
+        <TabsContent value={tab} className="mt-6 space-y-6">
           {isPending && data.items.length === 0 ? (
-            <div className="py-16 text-center text-muted-foreground">Loading…</div>
+            <div className="rounded-2xl border border-dashed py-16 text-center text-muted-foreground">
+              Loading providers…
+            </div>
           ) : data.items.length > 0 ? (
             <>
-              {data.items.map(renderProviderCard)}
+              {data.items.map((provider) => (
+                <ProviderReviewCard
+                  key={provider.id}
+                  provider={provider}
+                  onViewDocument={({ title, url, number, onViewed }) =>
+                    setViewer({ title, url, number, onViewed })
+                  }
+                  onSubmitted={() => fetchData()}
+                />
+              ))}
               <PaginationControls
                 page={data.page}
                 pageSize={data.pageSize}
@@ -411,8 +224,9 @@ export function VerificationContent({
               />
             </>
           ) : (
-            <div className="py-16 text-center text-muted-foreground rounded-2xl border border-dashed">
-              No providers in this category
+            <div className="rounded-2xl border border-dashed py-16 text-center">
+              <Shield className="mx-auto mb-3 h-10 w-10 text-muted-foreground/40" />
+              <p className="text-muted-foreground">No providers in this category</p>
             </div>
           )}
         </TabsContent>
@@ -424,57 +238,8 @@ export function VerificationContent({
         title={viewer?.title ?? ""}
         url={viewer?.url ?? null}
         documentNumber={viewer?.number}
+        onViewed={viewer?.onViewed}
       />
-
-      <DocumentActionDialog
-        open={!!actionDialog}
-        onOpenChange={(open) => !open && setActionDialog(null)}
-        documentType={actionDialog?.documentType ?? null}
-        action={actionDialog?.action ?? null}
-        onConfirm={handleDocAction}
-        loading={isPending}
-      />
-
-      <Dialog open={!!rejectProvider} onOpenChange={(open) => !open && setRejectProvider(null)}>
-        <DialogContent className="rounded-2xl sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Reject Provider</DialogTitle>
-            <DialogDescription>
-              An automated rejection message will be sent to the provider.
-            </DialogDescription>
-          </DialogHeader>
-          <Textarea
-            placeholder="Reason for rejection (optional)..."
-            value={rejectProvider?.reason ?? ""}
-            onChange={(e) =>
-              setRejectProvider((prev) =>
-                prev ? { ...prev, reason: e.target.value } : null
-              )
-            }
-            rows={3}
-            className="rounded-xl resize-none"
-          />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectProvider(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={async () => {
-                if (!rejectProvider) return;
-                await handleProviderStatus(
-                  rejectProvider.providerId,
-                  "REJECTED",
-                  rejectProvider.reason || undefined
-                );
-                setRejectProvider(null);
-              }}
-            >
-              Reject Provider
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import { toast } from "sonner";
-import { Users, UserCheck, UserX, UserMinus } from "lucide-react";
+import { Users, UserMinus, Eye } from "lucide-react";
 import {
   AreaChart,
   Area,
@@ -20,53 +20,87 @@ import { ChartCard } from "@/components/shared/chart-card";
 import { DataTable } from "@/components/shared/data-table";
 import { ExportButtons } from "@/components/shared/export-buttons";
 import { ListFilterBar } from "@/components/shared/list-filter-bar";
+import { DateRangeFilter } from "@/components/shared/date-range-filter";
+import { StatusBadge } from "@/components/shared/status-badge";
+import { PaginationControls } from "@/components/shared/pagination-controls";
+import { ErrorCard } from "@/components/shared/error-card";
+import { LoadingCard } from "@/components/shared/loading-card";
+import { Button } from "@/components/ui/button";
+import { UserDetailDialog } from "@/components/users/user-detail-dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { updateUserStatus } from "@/actions/users";
-import { formatDate } from "@/lib/utils";
+  getUserById,
+  getUsers,
+  type UserListItem,
+  type UserStats,
+  type UserDetail,
+} from "@/actions/users";
+import { useServerList } from "@/hooks/use-server-list";
+import { formatDate, shortId } from "@/lib/utils";
+import {
+  EMPTY_DATE_RANGE,
+  hasActiveDateRange,
+  type DateRange,
+} from "@/lib/date-filters";
+import type { PaginatedResult } from "@/lib/pagination";
 import type { UserStatus } from "@prisma/client";
 
-type UserRow = {
-  id: string;
-  name: string | null;
-  email: string;
-  phone: string | null;
-  status: UserStatus;
-  referralCode: string | null;
-  createdAt: Date;
-  _count: { bookings: number; reviews: number };
-};
-
-export function UsersContent({ users }: { users: UserRow[] }) {
+export function UsersContent({
+  initialData,
+  initialStats,
+}: {
+  initialData: PaginatedResult<UserListItem>;
+  initialStats: UserStats;
+}) {
   const searchParams = useSearchParams();
   const initialSearch = searchParams.get("q") ?? "";
-  const [data, setData] = useState(users);
+  const [stats, setStats] = useState(initialStats);
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [activityFilter, setActivityFilter] = useState<string>("all");
+  const [bookingsFilter, setBookingsFilter] = useState<string>("all");
+  const [referralFilter, setReferralFilter] = useState<string>("all");
+  const [dateRange, setDateRange] = useState<DateRange>(EMPTY_DATE_RANGE);
+  const [search, setSearch] = useState(initialSearch);
+  const [detailUser, setDetailUser] = useState<UserDetail | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [, startTransition] = useTransition();
 
-  const filteredData = useMemo(() => {
-    return data.filter((user) => {
-      if (statusFilter !== "all" && user.status !== statusFilter) return false;
-      if (activityFilter === "with_bookings" && user._count.bookings === 0) return false;
-      if (activityFilter === "no_bookings" && user._count.bookings > 0) return false;
-      return true;
+  const { data, error, isPending, changePage, applyFilters, retry } = useServerList({
+    initialData,
+    fetcher: getUsers,
+  });
+
+  const buildFilters = () => ({
+    search: search || undefined,
+    status: statusFilter === "all" ? ("ALL" as const) : (statusFilter as UserStatus),
+    activity:
+      bookingsFilter === "with_bookings"
+        ? ("WITH_BOOKINGS" as const)
+        : bookingsFilter === "no_bookings"
+          ? ("NO_BOOKINGS" as const)
+          : ("ALL" as const),
+    hasReferral:
+      referralFilter === "has_code"
+        ? ("YES" as const)
+        : referralFilter === "no_code"
+          ? ("NO" as const)
+          : ("ALL" as const),
+    dateFrom: dateRange.from || undefined,
+    dateTo: dateRange.to || undefined,
+  });
+
+  const refreshWithFilters = () => {
+    applyFilters(buildFilters());
+    startTransition(async () => {
+      const { getUserStats } = await import("@/actions/users");
+      const statsResult = await getUserStats(buildFilters());
+      if (statsResult.success && statsResult.data) {
+        setStats(statsResult.data);
+      }
     });
-  }, [data, statusFilter, activityFilter]);
-
-  const stats = useMemo(() => ({
-    active: data.filter((u) => u.status === "ACTIVE").length,
-    inactive: data.filter((u) => u.status === "INACTIVE").length,
-    suspended: data.filter((u) => u.status === "SUSPENDED").length,
-  }), [data]);
+  };
 
   const growthChart = useMemo(() => {
     const months: Record<string, number> = {};
-    filteredData.forEach((u) => {
+    data.items.forEach((u) => {
       const key = new Date(u.createdAt).toLocaleDateString("en-IN", {
         month: "short",
         year: "2-digit",
@@ -76,86 +110,133 @@ export function UsersContent({ users }: { users: UserRow[] }) {
     return Object.entries(months)
       .map(([month, users]) => ({ month, users }))
       .slice(-6);
-  }, [filteredData]);
+  }, [data.items]);
 
-  const handleStatusChange = async (id: string, status: UserStatus) => {
-    await updateUserStatus(id, status);
-    setData((prev) => prev.map((u) => (u.id === id ? { ...u, status } : u)));
-    toast.success("User status updated");
+  const openDetail = async (id: string) => {
+    startTransition(async () => {
+      const result = await getUserById(id);
+      if (result.success && result.data) {
+        setDetailUser(result.data);
+        setDetailOpen(true);
+      } else {
+        toast.error(result.error ?? "Failed to load user");
+      }
+    });
   };
 
   const resetFilters = () => {
     setStatusFilter("all");
-    setActivityFilter("all");
+    setBookingsFilter("all");
+    setReferralFilter("all");
+    setDateRange(EMPTY_DATE_RANGE);
+    setSearch("");
+    applyFilters({});
   };
 
-  const columns: ColumnDef<UserRow>[] = [
+  const columns: ColumnDef<UserListItem>[] = [
+    {
+      accessorKey: "id",
+      header: "User ID",
+      cell: ({ row }) => (
+        <code className="text-xs font-mono text-muted-foreground">
+          {shortId(row.original.id)}
+        </code>
+      ),
+    },
     {
       accessorKey: "name",
       header: "Name",
-      cell: ({ row }) => (
-        <div>
-          <p className="font-medium">{row.original.name ?? "—"}</p>
-          <p className="text-xs text-muted-foreground">{row.original.email}</p>
-        </div>
-      ),
+      cell: ({ row }) => <p className="font-medium">{row.original.name ?? "—"}</p>,
     },
-    { accessorKey: "phone", header: "Phone", cell: ({ row }) => row.original.phone ?? "—" },
     {
       accessorKey: "status",
       header: "Status",
-      cell: ({ row }) => (
-        <Select
-          value={row.original.status}
-          onValueChange={(v) => handleStatusChange(row.original.id, v as UserStatus)}
-        >
-          <SelectTrigger className="w-28 h-8">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ACTIVE">Active</SelectItem>
-            <SelectItem value="INACTIVE">Inactive</SelectItem>
-            <SelectItem value="SUSPENDED">Suspended</SelectItem>
-          </SelectContent>
-        </Select>
-      ),
+      cell: ({ row }) => <StatusBadge status={row.original.status} />,
     },
-    { accessorKey: "_count.bookings", header: "Bookings", cell: ({ row }) => row.original._count.bookings },
-    { accessorKey: "_count.reviews", header: "Reviews", cell: ({ row }) => row.original._count.reviews },
-    { accessorKey: "referralCode", header: "Referral Code", cell: ({ row }) => row.original.referralCode ?? "—" },
+    {
+      accessorKey: "_count.bookings",
+      header: "Bookings",
+      cell: ({ row }) => row.original._count.bookings,
+    },
+    {
+      accessorKey: "_count.reviews",
+      header: "Reviews",
+      cell: ({ row }) => row.original._count.reviews,
+    },
     {
       accessorKey: "createdAt",
       header: "Joined",
-      cell: ({ row }) => formatDate(row.original.createdAt),
+      cell: ({ row }) => (
+        <span className="text-xs text-muted-foreground whitespace-nowrap">
+          {formatDate(row.original.createdAt)}
+        </span>
+      ),
       sortingFn: "datetime",
+    },
+    {
+      id: "actions",
+      header: "",
+      cell: ({ row }) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 gap-1"
+          onClick={() => openDetail(row.original.id)}
+        >
+          <Eye className="h-3.5 w-3.5" />
+          View
+        </Button>
+      ),
     },
   ];
 
-  const exportData = filteredData.map((u) => ({
+  const exportData = data.items.map((u) => ({
+    userId: u.id,
     name: u.name ?? "",
     email: u.email,
-    phone: u.phone ?? "",
     status: u.status,
     bookings: u._count.bookings,
     reviews: u._count.reviews,
-    referralCode: u.referralCode ?? "",
+    joined: formatDate(u.createdAt),
   }));
+
+  const exportColumns = [
+    { key: "userId" as const, label: "User ID" },
+    { key: "name" as const, label: "Name" },
+    { key: "email" as const, label: "Email" },
+    { key: "status" as const, label: "Status" },
+    { key: "bookings" as const, label: "Bookings" },
+    { key: "reviews" as const, label: "Reviews" },
+    { key: "joined" as const, label: "Joined" },
+  ];
+
+  if (error) {
+    return <ErrorCard message={error} onRetry={retry} />;
+  }
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Users" description="View and manage customer accounts, status, and engagement" badge="Customers">
-        <ExportButtons data={exportData} filename="users" />
+      <PageHeader
+        title="Users"
+        description="View customer accounts — filter, export, and inspect profiles"
+        badge="Customers"
+      >
+        <ExportButtons
+          data={exportData}
+          filename="users"
+          title="Users Export"
+          columns={exportColumns}
+          showPdf
+        />
       </PageHeader>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard title="Total Users" value={data.length} icon={Users} accent="teal" />
-        <StatCard title="Active" value={stats.active} icon={UserCheck} accent="emerald" />
-        <StatCard title="Inactive" value={stats.inactive} icon={UserX} accent="amber" />
+      <div className="grid gap-4 sm:grid-cols-2">
+        <StatCard title="Total Users" value={stats.total} icon={Users} accent="teal" />
         <StatCard title="Suspended" value={stats.suspended} icon={UserMinus} accent="rose" />
       </div>
 
       {growthChart.length > 0 && (
-        <ChartCard title="User Registrations (Last 6 Months)">
+        <ChartCard title="User Registrations (Current Page)">
           <ResponsiveContainer width="100%" height={220}>
             <AreaChart data={growthChart}>
               <defs>
@@ -181,9 +262,11 @@ export function UsersContent({ users }: { users: UserRow[] }) {
       )}
 
       <ListFilterBar
-        description="Filter by account status and booking activity"
-        resultCount={filteredData.length}
+        description="Filter by status, bookings, referrals, and join date"
+        resultCount={data.total}
         onReset={resetFilters}
+        hasExtraFilters={hasActiveDateRange(dateRange)}
+        extra={<DateRangeFilter value={dateRange} onChange={setDateRange} label="Joined date" />}
         filters={[
           {
             id: "status",
@@ -198,27 +281,55 @@ export function UsersContent({ users }: { users: UserRow[] }) {
             ],
           },
           {
-            id: "activity",
-            label: "Activity",
-            value: activityFilter,
-            onChange: setActivityFilter,
+            id: "bookings",
+            label: "Bookings",
+            value: bookingsFilter,
+            onChange: setBookingsFilter,
             options: [
               { value: "all", label: "All Users" },
               { value: "with_bookings", label: "With Bookings" },
               { value: "no_bookings", label: "No Bookings" },
             ],
           },
+          {
+            id: "referral",
+            label: "Referral",
+            value: referralFilter,
+            onChange: setReferralFilter,
+            options: [
+              { value: "all", label: "All" },
+              { value: "has_code", label: "Has Referral Code" },
+              { value: "no_code", label: "No Referral Code" },
+            ],
+          },
         ]}
+        onApply={refreshWithFilters}
       />
 
-      <DataTable
-        columns={columns}
-        data={filteredData}
-        searchKeys={["name", "email", "phone", "referralCode"]}
-        searchPlaceholder="Search by name, email, phone, or referral code..."
-        defaultSearch={initialSearch}
-        defaultSorting={[{ id: "createdAt", desc: true }]}
-      />
+      {isPending ? (
+        <LoadingCard rows={8} showHeader={false} />
+      ) : (
+        <>
+          <DataTable
+            columns={columns}
+            data={data.items}
+            searchKeys={["name", "email", "phone", "referralCode", "id"]}
+            searchPlaceholder="Search by name, email, or ID..."
+            defaultSearch={search}
+            showPagination={false}
+            defaultSorting={[{ id: "createdAt", desc: true }]}
+          />
+          <PaginationControls
+            page={data.page}
+            pageSize={data.pageSize}
+            total={data.total}
+            onPageChange={(p) => changePage(p)}
+            onPageSizeChange={(size) => changePage(1, size)}
+          />
+        </>
+      )}
+
+      <UserDetailDialog user={detailUser} open={detailOpen} onOpenChange={setDetailOpen} />
     </div>
   );
 }

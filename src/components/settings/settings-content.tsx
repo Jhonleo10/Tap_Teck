@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { ChevronDown, ChevronRight, Layers, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Layers, Trash2, Plus } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatCard } from "@/components/shared/stat-card";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +13,13 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   updateCommission,
   updateReferralReward,
   updateGiftRules,
@@ -20,8 +27,12 @@ import {
   toggleServiceCategory,
   deleteServiceCategory,
   togglePlatformService,
+  createServiceCategory,
+  createPlatformService,
+  createSubService,
 } from "@/actions/settings";
 import { getCatalogStats } from "@/lib/catalog";
+import { useCountry } from "@/components/providers/country-provider";
 import { cn } from "@/lib/utils";
 
 type Settings = {
@@ -67,8 +78,15 @@ export function SettingsContent({
     JSON.stringify(settings.giftRules ?? { minRating: 4.5, minJobs: 50 }, null, 2)
   );
 
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [newCategoryDesc, setNewCategoryDesc] = useState("");
+  const [newServiceCategoryId, setNewServiceCategoryId] = useState("");
+  const [newServiceTitle, setNewServiceTitle] = useState("");
+  const [newServiceDesc, setNewServiceDesc] = useState("");
+  const [newSubServiceId, setNewSubServiceId] = useState("");
+  const [newSubServiceName, setNewSubServiceName] = useState("");
 
-  const catalogStats = getCatalogStats();
+  const { country } = useCountry();
 
   const saveCommission = async () => {
     await updateCommission(commission);
@@ -136,11 +154,74 @@ export function SettingsContent({
     });
   };
 
+  const catalogStats = getCatalogStats();
+
+  const addCategory = async () => {
+    if (!newCategoryName.trim()) {
+      toast.error("Category name is required");
+      return;
+    }
+    await createServiceCategory(newCategoryName.trim(), newCategoryDesc.trim() || undefined);
+    toast.success("Category created");
+    setNewCategoryName("");
+    setNewCategoryDesc("");
+    window.location.reload();
+  };
+
+  const addService = async () => {
+    if (!newServiceCategoryId || !newServiceTitle.trim()) {
+      toast.error("Category and service title are required");
+      return;
+    }
+    const svc = await createPlatformService({
+      categoryId: newServiceCategoryId,
+      title: newServiceTitle.trim(),
+      description: newServiceDesc.trim() || undefined,
+    });
+    setCategories((prev) =>
+      prev.map((cat) =>
+        cat.id === newServiceCategoryId
+          ? { ...cat, services: [...cat.services, { ...svc, subServices: [] }] }
+          : cat
+      )
+    );
+    toast.success("Service added to catalog");
+    setNewServiceTitle("");
+    setNewServiceDesc("");
+  };
+
+  const addSubService = async () => {
+    if (!newSubServiceId || !newSubServiceName.trim()) {
+      toast.error("Service and sub-service name are required");
+      return;
+    }
+    const sub = await createSubService({
+      serviceId: newSubServiceId,
+      name: newSubServiceName.trim(),
+    });
+    setCategories((prev) =>
+      prev.map((cat) => ({
+        ...cat,
+        services: cat.services.map((s) =>
+          s.id === newSubServiceId
+            ? { ...s, subServices: [...s.subServices, sub] }
+            : s
+        ),
+      }))
+    );
+    toast.success("Sub-service added");
+    setNewSubServiceName("");
+  };
+
+  const allServices = categories.flatMap((c) =>
+    c.services.map((s) => ({ ...s, categoryName: c.name }))
+  );
+
   return (
     <div className="page-container">
       <PageHeader
         title="Platform Settings"
-        description="Configure commissions, rewards, and manage the TapTeck service catalog"
+        description={`${country.flag} ${country.name} — Configure commissions, catalog, and rewards synced to mobile apps`}
         badge="Configuration"
       />
 
@@ -311,7 +392,105 @@ export function SettingsContent({
           </Card>
         </TabsContent>
 
-        <TabsContent value="categories" className="mt-4">
+        <TabsContent value="categories" className="mt-4 space-y-4">
+          <Card className="border-primary/20 bg-primary/5">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Plus className="h-4 w-4" />
+                Add to Catalog ({country.name})
+              </CardTitle>
+              <CardDescription>
+                Changes sync to the mobile apps via <code className="text-xs">/api/catalog?country={country.code}</code>
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-6 lg:grid-cols-3">
+              <div className="space-y-3 rounded-xl border bg-card p-4">
+                <p className="text-sm font-semibold">New Category</p>
+                <div className="space-y-2">
+                  <Label>Name</Label>
+                  <Input
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    placeholder="e.g. Pet Care"
+                    className="rounded-xl"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Description</Label>
+                  <Input
+                    value={newCategoryDesc}
+                    onChange={(e) => setNewCategoryDesc(e.target.value)}
+                    placeholder="Optional"
+                    className="rounded-xl"
+                  />
+                </div>
+                <Button size="sm" className="w-full rounded-lg" onClick={addCategory}>
+                  Add Category
+                </Button>
+              </div>
+
+              <div className="space-y-3 rounded-xl border bg-card p-4">
+                <p className="text-sm font-semibold">New Service</p>
+                <div className="space-y-2">
+                  <Label>Category</Label>
+                  <Select value={newServiceCategoryId} onValueChange={setNewServiceCategoryId}>
+                    <SelectTrigger className="rounded-xl">
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categories.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Service Title</Label>
+                  <Input
+                    value={newServiceTitle}
+                    onChange={(e) => setNewServiceTitle(e.target.value)}
+                    placeholder="e.g. Dog Walking"
+                    className="rounded-xl"
+                  />
+                </div>
+                <Button size="sm" className="w-full rounded-lg" onClick={addService}>
+                  Add Service
+                </Button>
+              </div>
+
+              <div className="space-y-3 rounded-xl border bg-card p-4">
+                <p className="text-sm font-semibold">New Sub-Service</p>
+                <div className="space-y-2">
+                  <Label>Parent Service</Label>
+                  <Select value={newSubServiceId} onValueChange={setNewSubServiceId}>
+                    <SelectTrigger className="rounded-xl">
+                      <SelectValue placeholder="Select service" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {allServices.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.title} ({s.categoryName})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Sub-Service Name</Label>
+                  <Input
+                    value={newSubServiceName}
+                    onChange={(e) => setNewSubServiceName(e.target.value)}
+                    placeholder="e.g. Basic Walk (30 min)"
+                    className="rounded-xl"
+                  />
+                </div>
+                <Button size="sm" className="w-full rounded-lg" onClick={addSubService}>
+                  Add Sub-Service
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>Catalog Categories</CardTitle>

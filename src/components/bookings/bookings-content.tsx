@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import { toast } from "sonner";
-import { Star, CalendarCheck, IndianRupee, MessageSquare } from "lucide-react";
+import { Star, CalendarCheck, IndianRupee, MessageSquare, Eye, Flag, Trash2 } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -22,7 +22,9 @@ import { StatCard } from "@/components/shared/stat-card";
 import { ChartCard, CHART_COLORS } from "@/components/shared/chart-card";
 import { DataTable } from "@/components/shared/data-table";
 import { ExportButtons } from "@/components/shared/export-buttons";
+import { PaginationControls } from "@/components/shared/pagination-controls";
 import { ListFilterBar } from "@/components/shared/list-filter-bar";
+import { DateRangeFilter } from "@/components/shared/date-range-filter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -32,13 +34,22 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { updateBookingStatus, getBookings } from "@/actions/bookings";
+import { getReviews } from "@/actions/reviews";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { EMPTY_DATE_RANGE, hasActiveDateRange, isWithinDateRange, type DateRange } from "@/lib/date-filters";
 import { useCountry } from "@/components/providers/country-provider";
 import {
   getCountrySubServiceOptions,
   getCountryServicesByCategory,
 } from "@/lib/catalog";
 import type { BookingStatus } from "@prisma/client";
+import { BookingOperationsDrawer } from "@/components/operations/booking-operations-drawer";
+import { BookingAnalyticsStrip } from "@/components/operations/booking-analytics-strip";
+import {
+  ReviewIntelligencePanel,
+  reviewAdminActions,
+} from "@/components/operations/review-intelligence-panel";
+import { Button } from "@/components/ui/button";
 
 type BookingRow = {
   id: string;
@@ -64,21 +75,25 @@ type ReviewRow = {
 };
 
 export function BookingsContent({
-  bookings,
-  reviews,
+  initialBookings,
+  initialReviews,
 }: {
-  bookings: BookingRow[];
-  reviews: ReviewRow[];
+  initialBookings: import("@/lib/pagination").PaginatedResult<BookingRow>;
+  initialReviews: import("@/lib/pagination").PaginatedResult<ReviewRow>;
 }) {
   const { countryCode, country, services, isReady } = useCountry();
   const searchParams = useSearchParams();
   const initialSearch = searchParams.get("q") ?? "";
-  const [bookingData, setBookingData] = useState(bookings);
-  const [reviewData] = useState(reviews);
+  const [bookingsPage, setBookingsPage] = useState(initialBookings);
+  const [reviewsPage, setReviewsPage] = useState(initialReviews);
   const [ratingFilter, setRatingFilter] = useState<string>("all");
   const [serviceFilter, setServiceFilter] = useState<string>("all");
   const [subServiceFilter, setSubServiceFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [bookingDateRange, setBookingDateRange] = useState<DateRange>(EMPTY_DATE_RANGE);
+  const [reviewDateRange, setReviewDateRange] = useState<DateRange>(EMPTY_DATE_RANGE);
+  const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
+  const [bookingDrawerOpen, setBookingDrawerOpen] = useState(false);
   const [, startTransition] = useTransition();
 
   const subServiceOptions = useMemo(
@@ -86,38 +101,70 @@ export function BookingsContent({
     [countryCode, serviceFilter]
   );
 
+  const bookingData = bookingsPage.items;
+  const reviewData = reviewsPage.items;
+
   const filteredBookings = useMemo(() => {
     return bookingData.filter((booking) => {
       if (statusFilter !== "all" && booking.status !== statusFilter) return false;
       if (serviceFilter !== "all" && booking.serviceName !== serviceFilter) return false;
       if (subServiceFilter !== "all" && booking.subServiceName !== subServiceFilter) return false;
+      if (!isWithinDateRange(booking.createdAt, bookingDateRange)) return false;
       return true;
     });
-  }, [bookingData, statusFilter, serviceFilter, subServiceFilter]);
+  }, [bookingData, statusFilter, serviceFilter, subServiceFilter, bookingDateRange]);
 
   useEffect(() => {
     if (!isReady) return;
     startTransition(async () => {
-      const data = await getBookings({ country: countryCode });
-      setBookingData(data as BookingRow[]);
+      const result = await getBookings({ country: countryCode, page: 1, pageSize: bookingsPage.pageSize });
+      if (result.success && result.data) {
+        setBookingsPage(result.data);
+      }
     });
     setServiceFilter("all");
     setSubServiceFilter("all");
     setStatusFilter("all");
-  }, [countryCode, isReady]);
+    setBookingDateRange(EMPTY_DATE_RANGE);
+  }, [countryCode, isReady, bookingsPage.pageSize]);
+
+  const loadBookingsPage = (page: number, pageSize = bookingsPage.pageSize) => {
+    startTransition(async () => {
+      const result = await getBookings({
+        country: countryCode,
+        status: statusFilter === "all" ? "ALL" : (statusFilter as BookingStatus),
+        service: serviceFilter,
+        subService: subServiceFilter,
+        dateFrom: bookingDateRange.from || undefined,
+        dateTo: bookingDateRange.to || undefined,
+        page,
+        pageSize,
+      });
+      if (result.success && result.data) {
+        setBookingsPage(result.data);
+      }
+    });
+  };
 
   const handleBookingStatus = async (id: string, status: BookingStatus) => {
-    await updateBookingStatus(id, status);
-    setBookingData((prev) =>
-      prev.map((b) => (b.id === id ? { ...b, status } : b))
-    );
+    const result = await updateBookingStatus(id, status);
+    if (!result.success) {
+      toast.error(result.error ?? "Failed to update booking");
+      return;
+    }
+    setBookingsPage((prev) => ({
+      ...prev,
+      items: prev.items.map((b) => (b.id === id ? { ...b, status } : b)),
+    }));
     toast.success("Booking status updated");
   };
 
-  const filteredReviews =
-    ratingFilter === "all"
+  const filteredReviews = useMemo(() => {
+    const list = ratingFilter === "all"
       ? reviewData
       : reviewData.filter((r) => r.rating === parseInt(ratingFilter));
+    return list.filter((r) => isWithinDateRange(r.createdAt, reviewDateRange));
+  }, [reviewData, ratingFilter, reviewDateRange]);
 
   const statusChart = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -200,6 +247,24 @@ export function BookingsContent({
       header: "Date",
       cell: ({ row }) => formatDate(row.original.createdAt),
     },
+    {
+      id: "bookingActions",
+      header: "",
+      cell: ({ row }) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 gap-1"
+          onClick={() => {
+            setSelectedBookingId(row.original.id);
+            setBookingDrawerOpen(true);
+          }}
+        >
+          <Eye className="h-3.5 w-3.5" />
+          View
+        </Button>
+      ),
+    },
   ];
 
   const reviewColumns: ColumnDef<ReviewRow>[] = [
@@ -247,12 +312,49 @@ export function BookingsContent({
       header: "Date",
       cell: ({ row }) => formatDate(row.original.createdAt),
     },
+    {
+      id: "reviewActions",
+      header: "Actions",
+      cell: ({ row }) => (
+        <div className="flex gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            title="Flag review"
+            onClick={() =>
+              reviewAdminActions(row.original.id, "flag")
+            }
+          >
+            <Flag className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-destructive"
+            title="Delete review"
+            onClick={() =>
+              reviewAdminActions(row.original.id, "delete", () => {
+                setReviewsPage((prev) => ({
+                  ...prev,
+                  items: prev.items.filter((r) => r.id !== row.original.id),
+                  total: prev.total - 1,
+                }));
+              })
+            }
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      ),
+    },
   ];
 
   const resetBookingFilters = () => {
     setServiceFilter("all");
     setSubServiceFilter("all");
     setStatusFilter("all");
+    setBookingDateRange(EMPTY_DATE_RANGE);
   };
 
   return (
@@ -269,15 +371,18 @@ export function BookingsContent({
             status: b.status,
           }))}
           filename="bookings"
+          showPdf
         />
       </PageHeader>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard title="Total Bookings" value={filteredBookings.length} icon={CalendarCheck} accent="teal" />
+        <StatCard title="Total Bookings" value={bookingsPage.total} icon={CalendarCheck} accent="teal" />
         <StatCard title="Completed Revenue" value={formatCurrency(totalRevenue)} icon={IndianRupee} accent="emerald" />
-        <StatCard title="Total Reviews" value={reviewData.length} icon={MessageSquare} accent="blue" />
+        <StatCard title="Total Reviews" value={reviewsPage.total} icon={MessageSquare} accent="blue" />
         <StatCard title="Avg Rating" value={avgRating} icon={Star} accent="amber" />
       </div>
+
+      {isReady && <BookingAnalyticsStrip countryCode={countryCode} />}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <ChartCard title="Bookings by Status">
@@ -317,8 +422,8 @@ export function BookingsContent({
 
       <Tabs defaultValue="bookings">
         <TabsList>
-          <TabsTrigger value="bookings">Bookings ({filteredBookings.length})</TabsTrigger>
-          <TabsTrigger value="reviews">Reviews ({reviewData.length})</TabsTrigger>
+          <TabsTrigger value="bookings">Bookings ({bookingsPage.total})</TabsTrigger>
+          <TabsTrigger value="reviews">Reviews ({reviewsPage.total})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="bookings" className="mt-4 space-y-4">
@@ -326,6 +431,14 @@ export function BookingsContent({
             description={`${services.length} services · ${getCountryServicesByCategory(countryCode, "all").reduce((n, s) => n + (s.subServices?.length ?? 1), 0)} bookable options`}
             resultCount={filteredBookings.length}
             onReset={resetBookingFilters}
+            hasExtraFilters={hasActiveDateRange(bookingDateRange)}
+            extra={
+              <DateRangeFilter
+                value={bookingDateRange}
+                onChange={setBookingDateRange}
+                label="Booking date"
+              />
+            }
             filters={[
               {
                 id: "status",
@@ -365,6 +478,7 @@ export function BookingsContent({
                 ],
               },
             ]}
+            onApply={() => loadBookingsPage(1)}
           />
           <DataTable
             columns={bookingColumns}
@@ -373,34 +487,94 @@ export function BookingsContent({
             searchPlaceholder="Search bookings..."
             defaultSearch={initialSearch}
             defaultSorting={[{ id: "createdAt", desc: true }]}
+            showPagination={false}
+          />
+          <PaginationControls
+            page={bookingsPage.page}
+            pageSize={bookingsPage.pageSize}
+            total={bookingsPage.total}
+            onPageChange={(p) => loadBookingsPage(p)}
+            onPageSizeChange={(size) => loadBookingsPage(1, size)}
           />
         </TabsContent>
 
         <TabsContent value="reviews" className="mt-4 space-y-4">
-          <div className="flex gap-2">
-            {["all", "1", "2", "3", "4", "5"].map((r) => (
-              <button
-                key={r}
-                onClick={() => setRatingFilter(r)}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                  ratingFilter === r
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:bg-muted/80"
-                }`}
-              >
-                {r === "all" ? "All" : `${r} Star`}
-              </button>
-            ))}
-          </div>
+          {isReady && <ReviewIntelligencePanel countryCode={countryCode} />}
+          <ListFilterBar
+            description="Filter reviews by rating and date"
+            resultCount={filteredReviews.length}
+            onReset={() => {
+              setRatingFilter("all");
+              setReviewDateRange(EMPTY_DATE_RANGE);
+            }}
+            hasExtraFilters={hasActiveDateRange(reviewDateRange) || ratingFilter !== "all"}
+            extra={
+              <DateRangeFilter
+                value={reviewDateRange}
+                onChange={setReviewDateRange}
+                label="Review date"
+              />
+            }
+            filters={[
+              {
+                id: "rating",
+                label: "Rating",
+                value: ratingFilter,
+                onChange: setRatingFilter,
+                options: [
+                  { value: "all", label: "All Ratings" },
+                  { value: "5", label: "5 Stars" },
+                  { value: "4", label: "4 Stars" },
+                  { value: "3", label: "3 Stars" },
+                  { value: "2", label: "2 Stars" },
+                  { value: "1", label: "1 Star" },
+                ],
+              },
+            ]}
+          />
           <DataTable
             columns={reviewColumns}
             data={filteredReviews}
             searchKeys={["comment", "user.name", "user.email", "provider.businessName"]}
             searchPlaceholder="Search reviews..."
             defaultSorting={[{ id: "createdAt", desc: true }]}
+            showPagination={false}
+          />
+          <PaginationControls
+            page={reviewsPage.page}
+            pageSize={reviewsPage.pageSize}
+            total={reviewsPage.total}
+            onPageChange={(p) => {
+              startTransition(async () => {
+                const result = await getReviews({
+                  rating: ratingFilter === "all" ? "ALL" : parseInt(ratingFilter),
+                  dateFrom: reviewDateRange.from || undefined,
+                  dateTo: reviewDateRange.to || undefined,
+                  page: p,
+                  pageSize: reviewsPage.pageSize,
+                });
+                if (result.success && result.data) setReviewsPage(result.data);
+              });
+            }}
+            onPageSizeChange={(size) => {
+              startTransition(async () => {
+                const result = await getReviews({
+                  rating: ratingFilter === "all" ? "ALL" : parseInt(ratingFilter),
+                  page: 1,
+                  pageSize: size,
+                });
+                if (result.success && result.data) setReviewsPage(result.data);
+              });
+            }}
           />
         </TabsContent>
       </Tabs>
+
+      <BookingOperationsDrawer
+        bookingId={selectedBookingId}
+        open={bookingDrawerOpen}
+        onOpenChange={setBookingDrawerOpen}
+      />
     </div>
   );
 }

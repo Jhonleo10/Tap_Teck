@@ -5,18 +5,35 @@ import { ColumnDef } from "@tanstack/react-table";
 import { PageHeader } from "@/components/shared/page-header";
 import { DataTable } from "@/components/shared/data-table";
 import { PaginationControls } from "@/components/shared/pagination-controls";
-import { getAuditLogs } from "@/actions/notifications";
+import { ErrorCard } from "@/components/shared/error-card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { getAuditLogs } from "@/actions/audit";
+import { AuditTimelineView } from "@/components/operations/audit-timeline";
 import { formatDate } from "@/lib/utils";
-import type { getAuditLogs as GetAuditLogs } from "@/actions/notifications";
+import type { PaginatedResult } from "@/lib/pagination";
+import type { Prisma } from "@prisma/client";
+import { isActionSuccess } from "@/lib/unwrap-action";
 
-type AuditLogRow = Awaited<ReturnType<typeof GetAuditLogs>>["items"][number];
+type AuditLogRow = Prisma.AuditLogGetPayload<{
+  select: {
+    id: true;
+    action: true;
+    entityType: true;
+    entityId: true;
+    adminId: true;
+    adminName: true;
+    metadata: true;
+    createdAt: true;
+  };
+}>;
 
 export function AuditLogsContent({
   initialData,
 }: {
-  initialData: Awaited<ReturnType<typeof GetAuditLogs>>;
+  initialData: PaginatedResult<AuditLogRow>;
 }) {
   const [data, setData] = useState(initialData);
+  const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   const columns: ColumnDef<AuditLogRow>[] = [
@@ -40,12 +57,21 @@ export function AuditLogsContent({
     },
   ];
 
-  const loadPage = (page: number, pageSize = data.pageSize) => {
+  const loadPage = (page: number, pageSize = data.pageSize, search?: string) => {
     startTransition(async () => {
-      const result = await getAuditLogs({ page, pageSize });
-      setData(result);
+      const result = await getAuditLogs({ page, pageSize, search });
+      if (isActionSuccess(result)) {
+        setData(result.data);
+        setError(null);
+      } else {
+        setError(result.error ?? "Failed to load audit logs");
+      }
     });
   };
+
+  if (error) {
+    return <ErrorCard message={error} onRetry={() => loadPage(data.page, data.pageSize)} />;
+  }
 
   return (
     <div className="space-y-6">
@@ -55,6 +81,13 @@ export function AuditLogsContent({
         badge="Security"
       />
 
+      <Tabs defaultValue="table">
+        <TabsList>
+          <TabsTrigger value="table">Table View</TabsTrigger>
+          <TabsTrigger value="timeline">Timeline View</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="table" className="mt-4 space-y-4">
       <DataTable
         columns={columns}
         data={data.items}
@@ -71,6 +104,12 @@ export function AuditLogsContent({
         onPageChange={(p) => loadPage(p)}
         onPageSizeChange={(size) => loadPage(1, size)}
       />
+        </TabsContent>
+
+        <TabsContent value="timeline" className="mt-4">
+          <AuditTimelineView />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

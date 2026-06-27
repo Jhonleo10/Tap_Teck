@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Download, ExternalLink, ZoomIn, ZoomOut, FileText } from "lucide-react";
 import {
   Dialog,
@@ -17,6 +17,8 @@ interface DocumentViewerProps {
   title: string;
   url: string | null;
   documentNumber?: string | null;
+  /** Called once when the admin has opened a document with a valid URL */
+  onViewed?: () => void;
 }
 
 function isPdfUrl(url: string) {
@@ -29,8 +31,21 @@ export function DocumentViewer({
   title,
   url,
   documentNumber,
+  onViewed,
 }: DocumentViewerProps) {
   const [zoom, setZoom] = useState(100);
+  const viewedRef = useRef(false);
+
+  useEffect(() => {
+    if (!open) {
+      viewedRef.current = false;
+      return;
+    }
+    if (url && onViewed && !viewedRef.current) {
+      viewedRef.current = true;
+      onViewed();
+    }
+  }, [open, url, onViewed]);
 
   const handleOpenChange = (next: boolean) => {
     if (!next) setZoom(100);

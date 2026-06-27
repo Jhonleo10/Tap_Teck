@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import { toast } from "sonner";
-import { Briefcase, CheckCircle, Clock, ShieldCheck } from "lucide-react";
+import { Briefcase, CheckCircle, Clock, ShieldCheck, Eye } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -21,21 +21,25 @@ import { ChartCard, CHART_COLORS } from "@/components/shared/chart-card";
 import { DataTable } from "@/components/shared/data-table";
 import { ExportButtons } from "@/components/shared/export-buttons";
 import { ListFilterBar } from "@/components/shared/list-filter-bar";
+import { DateRangeFilter } from "@/components/shared/date-range-filter";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
+import { ProviderDetailDialog } from "@/components/providers/provider-detail-dialog";
+import { PaginationControls } from "@/components/shared/pagination-controls";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { updateProviderStatus, updateVerificationStatus, getProviders } from "@/actions/providers";
-import { formatDate } from "@/lib/utils";
+  updateProviderStatus,
+  getProviders,
+  getProviderById,
+  getProviderStats,
+} from "@/actions/providers";
+import { formatDate, shortId } from "@/lib/utils";
+import { EMPTY_DATE_RANGE, hasActiveDateRange, isWithinDateRange, type DateRange } from "@/lib/date-filters";
 import { useCountry } from "@/components/providers/country-provider";
 import { getCountryCategories, getLocationDisplayLabel } from "@/lib/countries";
 import { getCountryServicesByCategory } from "@/lib/catalog";
 import type { ServiceCategoryId } from "@/lib/services-data";
-import type { ProviderStatus, VerificationStatus } from "@prisma/client";
+import type { ProviderStatus } from "@prisma/client";
 
 type ProviderRow = {
   id: string;
@@ -46,25 +50,36 @@ type ProviderRow = {
   city: string | null;
   state: string | null;
   status: ProviderStatus;
-  verificationStatus: VerificationStatus;
+  verificationStatus: string;
   isVerified: boolean;
   canReceiveBookings: boolean;
   rating: number;
   completedJobs: number;
   createdAt: Date;
   user: { name: string | null; email: string; phone: string | null };
+  _count: { bookings: number };
 };
 
-export function ProvidersContent({ providers }: { providers: ProviderRow[] }) {
+export function ProvidersContent({
+  initialData,
+  initialStats,
+}: {
+  initialData: import("@/lib/pagination").PaginatedResult<ProviderRow>;
+  initialStats: { total: number; active: number; pending: number; verified: number };
+}) {
   const searchParams = useSearchParams();
   const initialSearch = searchParams.get("q") ?? "";
   const { countryCode, country, locationOptions, isReady } = useCountry();
-  const [data, setData] = useState(providers);
+  const [data, setData] = useState(initialData);
+  const [stats, setStats] = useState(initialStats);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [verificationFilter, setVerificationFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [serviceFilter, setServiceFilter] = useState<string>("all");
   const [locationFilter, setLocationFilter] = useState<string>("all");
+  const [dateRange, setDateRange] = useState<DateRange>(EMPTY_DATE_RANGE);
+  const [detailProvider, setDetailProvider] = useState<import("@/actions/providers").ProviderDetail | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [, startTransition] = useTransition();
 
   const categories = useMemo(
@@ -86,18 +101,25 @@ export function ProvidersContent({ providers }: { providers: ProviderRow[] }) {
   useEffect(() => {
     if (!isReady) return;
     startTransition(async () => {
-      const result = await getProviders({ country: countryCode });
-      setData(result as ProviderRow[]);
+      const [listResult, statsResult] = await Promise.all([
+        getProviders({ country: countryCode, page: 1, pageSize: data.pageSize }),
+        getProviderStats({ country: countryCode }),
+      ]);
+      if (listResult.success && listResult.data) setData(listResult.data);
+      if (statsResult.success && statsResult.data) setStats(statsResult.data);
     });
     setStatusFilter("all");
     setVerificationFilter("all");
     setCategoryFilter("all");
     setServiceFilter("all");
     setLocationFilter("all");
-  }, [countryCode, isReady]);
+    setDateRange(EMPTY_DATE_RANGE);
+  }, [countryCode, isReady, data.pageSize]);
+
+  const items = data.items;
 
   const filteredData = useMemo(() => {
-    return data.filter((provider) => {
+    return items.filter((provider) => {
       if (statusFilter !== "all" && provider.status !== statusFilter) return false;
       if (verificationFilter !== "all" && provider.verificationStatus !== verificationFilter) {
         return false;
@@ -112,16 +134,10 @@ export function ProvidersContent({ providers }: { providers: ProviderRow[] }) {
           return false;
         }
       }
+      if (!isWithinDateRange(provider.createdAt, dateRange)) return false;
       return true;
     });
-  }, [data, statusFilter, verificationFilter, categoryFilter, serviceFilter, locationFilter]);
-
-  const stats = useMemo(() => ({
-    active: data.filter((p) => p.status === "ACTIVE").length,
-    pending: data.filter((p) => p.verificationStatus === "PENDING" || p.verificationStatus === "UNDER_REVIEW").length,
-    inactive: data.filter((p) => p.status === "INACTIVE").length,
-    verified: data.filter((p) => p.isVerified).length,
-  }), [data]);
+  }, [items, statusFilter, verificationFilter, categoryFilter, serviceFilter, locationFilter, dateRange]);
 
   const categoryChart = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -133,37 +149,34 @@ export function ProvidersContent({ providers }: { providers: ProviderRow[] }) {
     return Object.entries(counts).map(([name, count]) => ({ name, count }));
   }, [filteredData, categories]);
 
-  const handleStatusChange = async (id: string, status: ProviderStatus) => {
-    await updateProviderStatus(id, status);
-    setData((prev) => prev.map((p) => (p.id === id ? { ...p, status } : p)));
-    toast.success("Provider status updated");
+  const handleToggleActive = async (id: string, active: boolean) => {
+    const status: ProviderStatus = active ? "ACTIVE" : "INACTIVE";
+    const result = await updateProviderStatus(id, status);
+    if (!result.success) {
+      toast.error(result.error ?? "Failed to update provider");
+      return;
+    }
+    setData((prev) => ({
+      ...prev,
+      items: prev.items.map((p) => (p.id === id ? { ...p, status } : p)),
+    }));
+    toast.success(`Provider ${active ? "activated" : "deactivated"}`);
   };
 
-  const handleVerificationChange = async (
-    id: string,
-    verificationStatus: VerificationStatus
-  ) => {
-    await updateVerificationStatus(id, verificationStatus);
-    setData((prev) =>
-      prev.map((p) =>
-        p.id === id
-          ? {
-              ...p,
-              verificationStatus,
-              isVerified: verificationStatus === "VERIFIED",
-              canReceiveBookings: verificationStatus === "VERIFIED",
-              status:
-                verificationStatus === "VERIFIED"
-                  ? "ACTIVE"
-                  : verificationStatus === "REJECTED"
-                    ? "INACTIVE"
-                    : "PENDING",
-            }
-          : p
-      )
-    );
-    toast.success("Verification status updated");
+  const openDetail = async (id: string) => {
+    startTransition(async () => {
+      const result = await getProviderById(id);
+      if (result.success && result.data) {
+        setDetailProvider(result.data);
+        setDetailOpen(true);
+      } else {
+        toast.error(result.error ?? "Failed to load provider");
+      }
+    });
   };
+
+  const getCategoryLabel = (id: string) =>
+    categories.find((c) => c.id === id)?.label ?? id;
 
   const resetFilters = () => {
     setStatusFilter("all");
@@ -171,100 +184,110 @@ export function ProvidersContent({ providers }: { providers: ProviderRow[] }) {
     setCategoryFilter("all");
     setServiceFilter("all");
     setLocationFilter("all");
+    setDateRange(EMPTY_DATE_RANGE);
   };
 
   const columns: ColumnDef<ProviderRow>[] = [
     {
-      accessorKey: "businessName",
-      header: "Business",
+      accessorKey: "id",
+      header: "Provider ID",
       cell: ({ row }) => (
-        <div>
-          <p className="font-medium">{row.original.businessName}</p>
-          <p className="text-xs text-muted-foreground">{row.original.user.email}</p>
-        </div>
+        <code className="text-xs font-mono text-muted-foreground">
+          {shortId(row.original.id)}
+        </code>
       ),
     },
-    { accessorKey: "serviceCategory", header: "Category", cell: ({ row }) => {
-        const label = categories.find((c) => c.id === row.original.serviceCategory)?.label;
-        return label ?? row.original.serviceCategory;
-      }},
+    {
+      accessorKey: "businessName",
+      header: "Name",
+      cell: ({ row }) => (
+        <p className="font-medium">{row.original.businessName}</p>
+      ),
+    },
     {
       accessorKey: "primaryService",
       header: "Service",
       cell: ({ row }) => row.original.primaryService ?? "—",
     },
-    { accessorKey: "location", header: "Location" },
+    {
+      accessorKey: "serviceCategory",
+      header: "Category",
+      cell: ({ row }) => getCategoryLabel(row.original.serviceCategory),
+    },
     {
       accessorKey: "status",
       header: "Status",
-      cell: ({ row }) => (
-        <Select
-          value={row.original.status}
-          onValueChange={(v) => handleStatusChange(row.original.id, v as ProviderStatus)}
-        >
-          <SelectTrigger className="w-28 h-8">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ACTIVE">Active</SelectItem>
-            <SelectItem value="INACTIVE">Inactive</SelectItem>
-            <SelectItem value="PENDING">Pending</SelectItem>
-          </SelectContent>
-        </Select>
-      ),
+      cell: ({ row }) => <StatusBadge status={row.original.status} />,
     },
     {
-      accessorKey: "verificationStatus",
-      header: "Verification",
-      cell: ({ row }) => (
-        <Select
-          value={row.original.verificationStatus}
-          onValueChange={(v) =>
-            handleVerificationChange(row.original.id, v as VerificationStatus)
-          }
-        >
-          <SelectTrigger className="w-36 h-8">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="PENDING">Pending</SelectItem>
-            <SelectItem value="UNDER_REVIEW">Under Review</SelectItem>
-            <SelectItem value="VERIFIED">Verified</SelectItem>
-            <SelectItem value="REJECTED">Rejected</SelectItem>
-          </SelectContent>
-        </Select>
-      ),
-    },
-    {
-      accessorKey: "canReceiveBookings",
+      id: "bookings",
       header: "Bookings",
-      cell: ({ row }) => (
-        <StatusBadge status={row.original.canReceiveBookings ? "ACTIVE" : "INACTIVE"} />
-      ),
-    },
-    {
-      accessorKey: "rating",
-      header: "Rating",
-      cell: ({ row }) => `${row.original.rating.toFixed(1)} ⭐`,
+      cell: ({ row }) => row.original._count.bookings,
     },
     {
       accessorKey: "createdAt",
       header: "Joined",
-      cell: ({ row }) => formatDate(row.original.createdAt),
+      cell: ({ row }) => (
+        <span className="text-xs text-muted-foreground whitespace-nowrap">
+          {formatDate(row.original.createdAt)}
+        </span>
+      ),
+      sortingFn: "datetime",
+    },
+    {
+      id: "active",
+      header: "Active / Inactive",
+      cell: ({ row }) => (
+        <div className="flex items-center gap-2">
+          <Switch
+            checked={row.original.status === "ACTIVE"}
+            onCheckedChange={(checked) => handleToggleActive(row.original.id, checked)}
+            aria-label="Toggle provider active status"
+          />
+          <span className="text-xs text-muted-foreground hidden sm:inline">
+            {row.original.status === "ACTIVE" ? "Active" : "Inactive"}
+          </span>
+        </div>
+      ),
+    },
+    {
+      id: "actions",
+      header: "",
+      cell: ({ row }) => (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 rounded-lg"
+          onClick={() => openDetail(row.original.id)}
+          aria-label="View provider details"
+        >
+          <Eye className="h-4 w-4" />
+        </Button>
+      ),
     },
   ];
 
   const exportData = filteredData.map((p) => ({
-    businessName: p.businessName,
-    email: p.user.email,
-    category: categories.find((c) => c.id === p.serviceCategory)?.label ?? p.serviceCategory,
+    providerId: p.id,
+    name: p.businessName,
     service: p.primaryService ?? "",
-    location: p.location,
+    category: getCategoryLabel(p.serviceCategory),
     status: p.status,
+    bookings: p._count.bookings,
     verification: p.verificationStatus,
-    rating: p.rating,
-    jobs: p.completedJobs,
+    joined: formatDate(p.createdAt),
   }));
+
+  const exportColumns = [
+    { key: "providerId" as const, label: "Provider ID" },
+    { key: "name" as const, label: "Name" },
+    { key: "service" as const, label: "Service" },
+    { key: "category" as const, label: "Category" },
+    { key: "status" as const, label: "Status" },
+    { key: "bookings" as const, label: "Bookings" },
+    { key: "verification" as const, label: "Verification" },
+    { key: "joined" as const, label: "Joined" },
+  ];
 
   const locationFilterDescription =
     locationFilter !== "all"
@@ -273,26 +296,22 @@ export function ProvidersContent({ providers }: { providers: ProviderRow[] }) {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Providers" description="Manage verified professionals across Cleaning, Automotive, Home Repair, Beauty & more" badge="Service Partners">
+      <PageHeader
+        title="Providers"
+        description="Manage service partners — filter, export, and view full profiles"
+        badge="Service Partners"
+      >
         <ExportButtons
           data={exportData}
           filename="providers"
-          columns={[
-            { key: "businessName", label: "Business" },
-            { key: "email", label: "Email" },
-            { key: "category", label: "Category" },
-            { key: "service", label: "Service" },
-            { key: "location", label: "Location" },
-            { key: "status", label: "Status" },
-            { key: "verification", label: "Verification" },
-            { key: "rating", label: "Rating" },
-            { key: "jobs", label: "Jobs" },
-          ]}
+          title="Providers Export"
+          columns={exportColumns}
+          showPdf
         />
       </PageHeader>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard title="Total Providers" value={data.length} icon={Briefcase} accent="teal" />
+        <StatCard title="Total Providers" value={stats.total} icon={Briefcase} accent="teal" />
         <StatCard title="Active" value={stats.active} icon={CheckCircle} accent="emerald" />
         <StatCard title="Pending Review" value={stats.pending} icon={Clock} accent="amber" />
         <StatCard title="Verified" value={stats.verified} icon={ShieldCheck} accent="blue" />
@@ -318,8 +337,10 @@ export function ProvidersContent({ providers }: { providers: ProviderRow[] }) {
 
       <ListFilterBar
         description={`${country.flag} ${country.name}${locationFilterDescription ? ` · ${locationFilterDescription}` : ""}`}
-        resultCount={filteredData.length}
+        resultCount={data.total}
         onReset={resetFilters}
+        hasExtraFilters={hasActiveDateRange(dateRange)}
+        extra={<DateRangeFilter value={dateRange} onChange={setDateRange} label="Joined date" />}
         filters={[
           {
             id: "status",
@@ -389,9 +410,39 @@ export function ProvidersContent({ providers }: { providers: ProviderRow[] }) {
         columns={columns}
         data={filteredData}
         searchKeys={["businessName", "user.email", "user.name", "primaryService", "serviceCategory", "location", "city"]}
-        searchPlaceholder="Search by business, service, email, or location..."
+        searchPlaceholder="Search providers..."
         defaultSearch={initialSearch}
         defaultSorting={[{ id: "createdAt", desc: true }]}
+        showPagination={false}
+      />
+
+      <PaginationControls
+        page={data.page}
+        pageSize={data.pageSize}
+        total={data.total}
+        onPageChange={(p) => {
+          startTransition(async () => {
+            const result = await getProviders({ country: countryCode, page: p, pageSize: data.pageSize });
+            if (result.success && result.data) setData(result.data);
+          });
+        }}
+        onPageSizeChange={(size) => {
+          startTransition(async () => {
+            const result = await getProviders({ country: countryCode, page: 1, pageSize: size });
+            if (result.success && result.data) setData(result.data);
+          });
+        }}
+      />
+
+      <ProviderDetailDialog
+        provider={detailProvider}
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        categoryLabel={
+          detailProvider
+            ? getCategoryLabel(detailProvider.serviceCategory)
+            : undefined
+        }
       />
     </div>
   );

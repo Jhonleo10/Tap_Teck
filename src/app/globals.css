@@ -39,32 +39,53 @@
 
 :root {
   --radius: 0.875rem;
-  --background: #f6f8f7;
+  --background: #f8fafc;
   --foreground: #0c1815;
   --card: #ffffff;
   --card-foreground: #0c1815;
   --popover: #ffffff;
   --popover-foreground: #0c1815;
-  --primary: #0d6e5f;
+  --primary: #006f5f;
   --primary-foreground: #ffffff;
-  --secondary: #1a9e88;
+  --secondary: #0e8a72;
   --secondary-foreground: #ffffff;
-  --muted: #edf2f0;
+  --muted: #f1f5f4;
   --muted-foreground: #5a6e68;
-  --accent: #e8f5f2;
-  --accent-foreground: #0d6e5f;
-  --highlight: #f97316;
+  --accent: #ecfdf5;
+  --accent-foreground: #006f5f;
+  --highlight: #22c55e;
   --highlight-foreground: #ffffff;
   --destructive: #e5484d;
   --destructive-foreground: #ffffff;
-  --border: #d8e4df;
-  --input: #d8e4df;
-  --ring: #0d6e5f;
-  --sidebar: #071612;
-  --sidebar-foreground: #e8f5f2;
-  --sidebar-border: #143028;
-  --sidebar-accent: #0d6e5f;
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: #006f5f;
+  --sidebar: #04201a;
+  --sidebar-foreground: #ecfdf5;
+  --sidebar-border: #0a3d32;
+  --sidebar-accent: #006f5f;
   --sidebar-accent-foreground: #ffffff;
+  --brand-primary: #006f5f;
+  --brand-secondary: #0e8a72;
+  --brand-accent: #22c55e;
+  --shadow-soft: 0 1px 3px rgba(0, 111, 95, 0.06), 0 8px 24px rgba(0, 0, 0, 0.04);
+  --shadow-elevated: 0 4px 16px rgba(0, 111, 95, 0.08), 0 12px 40px rgba(0, 0, 0, 0.06);
+  --scrollbar-size: 8px;
+  --scrollbar-track: color-mix(in srgb, var(--muted) 55%, transparent);
+  --scrollbar-thumb: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--primary) 72%, white),
+    color-mix(in srgb, var(--secondary) 88%, var(--primary))
+  );
+  --scrollbar-thumb-solid: color-mix(in srgb, var(--primary) 55%, var(--muted));
+  --scrollbar-thumb-hover: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--primary) 88%, white),
+    color-mix(in srgb, var(--highlight) 75%, var(--secondary))
+  );
+  --scrollbar-thumb-hover-solid: color-mix(in srgb, var(--primary) 78%, var(--secondary));
+  --scrollbar-thumb-border: color-mix(in srgb, var(--background) 80%, transparent);
+  --scrollbar-glow: 0 0 12px color-mix(in srgb, var(--primary) 28%, transparent);
 }
 
 .dark {
@@ -94,14 +115,74 @@
   --sidebar-border: #132822;
   --sidebar-accent: #132822;
   --sidebar-accent-foreground: #2dd4bf;
+  --scrollbar-track: color-mix(in srgb, var(--muted) 70%, transparent);
+  --scrollbar-thumb: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--primary) 65%, #111f1b),
+    color-mix(in srgb, var(--secondary) 80%, var(--primary))
+  );
+  --scrollbar-thumb-solid: color-mix(in srgb, var(--primary) 50%, #111f1b);
+  --scrollbar-thumb-hover: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--primary) 82%, var(--highlight)),
+    color-mix(in srgb, var(--highlight) 60%, var(--secondary))
+  );
+  --scrollbar-thumb-hover-solid: color-mix(in srgb, var(--primary) 72%, var(--highlight));
+  --scrollbar-thumb-border: color-mix(in srgb, var(--background) 65%, transparent);
+  --scrollbar-glow: 0 0 14px color-mix(in srgb, var(--primary) 32%, transparent);
 }
 
 @layer base {
   * {
     @apply border-border;
   }
+  html {
+    scrollbar-gutter: stable;
+  }
   body {
     @apply bg-background text-foreground antialiased;
+  }
+
+  /* TapTeck custom scrollbars — Firefox */
+  *,
+  html,
+  body {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb-solid) var(--scrollbar-track);
+  }
+
+  /* TapTeck custom scrollbars — Chromium / Safari */
+  *::-webkit-scrollbar {
+    width: var(--scrollbar-size);
+    height: var(--scrollbar-size);
+  }
+
+  *::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+    border-radius: 999px;
+    margin: 4px;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 999px;
+    border: 2px solid var(--scrollbar-thumb-border);
+    background-clip: padding-box;
+    min-height: 40px;
+    transition: background 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+    box-shadow: var(--scrollbar-glow);
+  }
+
+  *::-webkit-scrollbar-thumb:active {
+    background: var(--scrollbar-thumb-hover);
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: transparent;
   }
 }
 
@@ -121,10 +202,65 @@
   }
 
   .glass-card {
-    @apply rounded-2xl border border-border/50 bg-card/80 shadow-sm backdrop-blur-md;
+    @apply rounded-2xl border border-border/40 bg-card/70 shadow-sm backdrop-blur-xl;
+    box-shadow: var(--shadow-soft);
+  }
+
+  .glass-header {
+    @apply border-b border-border/40 bg-background/70 backdrop-blur-xl backdrop-saturate-150;
+  }
+
+  .gradient-border {
+    position: relative;
+    background: linear-gradient(var(--card), var(--card)) padding-box,
+      linear-gradient(135deg, color-mix(in srgb, var(--primary) 40%, transparent), color-mix(in srgb, var(--highlight) 30%, transparent)) border-box;
+    border: 1px solid transparent;
+  }
+
+  .card-hover-lift {
+    @apply transition-all duration-300;
+  }
+
+  .card-hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-elevated);
   }
 
   .page-container {
     @apply space-y-6;
+  }
+
+  .focus-ring {
+    @apply outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+  }
+
+  .scrollbar-thin {
+    --scrollbar-size: 6px;
+  }
+
+  .scrollbar-sidebar {
+    --scrollbar-track: rgba(255, 255, 255, 0.04);
+    --scrollbar-thumb-solid: color-mix(in srgb, var(--highlight) 55%, var(--primary));
+    --scrollbar-thumb-hover-solid: color-mix(in srgb, var(--highlight) 72%, #ffffff);
+    --scrollbar-thumb-border: color-mix(in srgb, var(--sidebar) 88%, transparent);
+    --scrollbar-thumb: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--highlight) 70%, var(--primary)),
+      color-mix(in srgb, var(--primary) 85%, var(--sidebar))
+    );
+    --scrollbar-thumb-hover: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--highlight) 85%, white),
+      color-mix(in srgb, var(--primary) 90%, var(--highlight))
+    );
+    --scrollbar-glow: 0 0 14px color-mix(in srgb, var(--highlight) 35%, transparent);
+  }
+
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
   }
 }

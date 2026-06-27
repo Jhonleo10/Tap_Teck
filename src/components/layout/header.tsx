@@ -2,7 +2,8 @@
 
 import { useSession } from "next-auth/react";
 import { useTheme } from "next-themes";
-import { Menu, Moon, Sun, Bell, Globe, ChevronDown, Check } from "lucide-react";
+import { Menu, Moon, Sun, Globe, Check } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -15,17 +16,23 @@ import {
 import { signOut } from "next-auth/react";
 import { useCountry } from "@/components/providers/country-provider";
 import { countries, type CountryCode } from "@/lib/countries";
-import { GlobalSearch } from "@/components/layout/global-search";
+import { CommandPalette } from "@/components/layout/command-palette";
+import { NotificationBell } from "@/components/layout/notification-bell";
+import { usePageTitle } from "@/components/layout/breadcrumbs";
 import { cn } from "@/lib/utils";
 
 interface HeaderProps {
   onMenuClick: () => void;
 }
 
+const iconBtn =
+  "h-9 w-9 shrink-0 rounded-lg text-muted-foreground hover:bg-muted/60 hover:text-foreground";
+
 export function Header({ onMenuClick }: HeaderProps) {
   const { data: session } = useSession();
   const { theme, setTheme } = useTheme();
   const { countryCode, country, setCountry } = useCountry();
+  const pageTitle = usePageTitle();
 
   const initials =
     session?.user?.name
@@ -35,109 +42,119 @@ export function Header({ onMenuClick }: HeaderProps) {
       .toUpperCase()
       .slice(0, 2) ?? "AD";
 
+  const greeting = (() => {
+    const h = new Date().getHours();
+    if (h < 12) return "Good morning";
+    if (h < 17) return "Good afternoon";
+    return "Good evening";
+  })();
+
   return (
-    <div className="sticky top-0 z-30 border-b border-border/50 bg-background/80 backdrop-blur-xl">
-      <div className="flex h-16 items-center gap-3 px-4 lg:gap-4 lg:px-8">
-      {/* Left: menu + welcome */}
-      <div className="flex min-w-0 shrink-0 items-center gap-3">
-        <Button variant="ghost" size="icon" className="lg:hidden" onClick={onMenuClick}>
-          <Menu className="h-5 w-5" />
-        </Button>
-        <div className="hidden min-w-0 sm:block">
-          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Welcome back
-          </p>
-          <p className="truncate font-semibold">{session?.user?.name ?? "Admin"}</p>
-        </div>
-      </div>
-
-      {/* Center: search */}
-      <div className="hidden min-w-0 flex-1 md:flex md:justify-center">
-        <GlobalSearch className="w-full max-w-lg" />
-      </div>
-
-      {/* Right: country, notifications, theme, profile */}
-      <div className="ml-auto flex shrink-0 items-center gap-1.5">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="outline"
-              className="h-10 gap-1.5 rounded-xl border-border/60 bg-card px-2.5 shadow-sm hover:bg-muted/50 sm:gap-2 sm:px-3"
-            >
-              <Globe className="h-4 w-4 text-primary" />
-              <span className="text-base leading-none">{country.flag}</span>
-              <span className="hidden font-medium lg:inline">{country.name}</span>
-              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-52 rounded-xl">
-            <p className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
-              Select Country
-            </p>
-            <DropdownMenuSeparator />
-            {countries.map((c) => (
-              <DropdownMenuItem
-                key={c.code}
-                onClick={() => setCountry(c.code as CountryCode)}
-                className={cn(
-                  "flex cursor-pointer items-center justify-between rounded-lg",
-                  countryCode === c.code && "bg-primary/10 text-primary"
-                )}
-              >
-                <span className="flex items-center gap-2">
-                  <span>{c.flag}</span>
-                  <span>{c.name}</span>
-                </span>
-                {countryCode === c.code && <Check className="h-4 w-4" />}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        <Button variant="ghost" size="icon" className="relative rounded-xl">
-          <Bell className="h-[18px] w-[18px]" />
-          <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-highlight ring-2 ring-background" />
-        </Button>
-
+    <header className="sticky top-0 z-30 glass-header">
+      <div className="flex h-14 min-w-0 items-center gap-2 px-3 sm:gap-3 sm:px-4 lg:px-6">
         <Button
           variant="ghost"
           size="icon"
-          className="rounded-xl"
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          className={cn(iconBtn, "lg:hidden")}
+          onClick={onMenuClick}
+          aria-label="Open menu"
         >
-          <Sun className="h-[18px] w-[18px] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-          <Moon className="absolute h-[18px] w-[18px] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-          <span className="sr-only">Toggle theme</span>
+          <Menu className="h-5 w-5" />
         </Button>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="relative h-10 w-10 rounded-xl p-0">
-              <Avatar className="h-9 w-9 ring-2 ring-border/60">
-                <AvatarImage src={session?.user?.image ?? undefined} />
-                <AvatarFallback className="bg-gradient-to-br from-primary to-secondary text-xs text-primary-foreground">
-                  {initials}
-                </AvatarFallback>
-              </Avatar>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-52 rounded-xl">
-            <div className="px-3 py-2">
-              <p className="text-sm font-semibold">{session?.user?.name}</p>
-              <p className="text-xs text-muted-foreground">{session?.user?.email}</p>
-            </div>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => signOut({ callbackUrl: "/login" })}>
-              Sign out
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-      </div>
+        <div className="min-w-0 shrink sm:max-w-[12rem] md:max-w-[14rem] lg:max-w-[16rem]">
+          <h1 className="truncate text-sm font-semibold capitalize sm:text-base">{pageTitle}</h1>
+        </div>
 
-      <div className="border-t border-border/40 px-4 py-2.5 md:hidden">
-        <GlobalSearch className="w-full max-w-none" />
+        <div className="hidden min-w-0 flex-1 justify-center px-2 md:flex">
+          <CommandPalette variant="trigger" className="h-9 w-full max-w-sm lg:max-w-md" />
+        </div>
+
+        <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
+          <CommandPalette variant="inline" className="md:hidden" />
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={iconBtn}
+                aria-label={`Region: ${country.name}`}
+                title={country.name}
+              >
+                <span className="text-base leading-none">{country.flag}</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52 rounded-xl">
+              <p className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Region</p>
+              <DropdownMenuSeparator />
+              {countries.map((c) => (
+                <DropdownMenuItem
+                  key={c.code}
+                  onClick={() => setCountry(c.code as CountryCode)}
+                  className={cn(
+                    "flex cursor-pointer items-center justify-between rounded-lg",
+                    countryCode === c.code && "bg-primary/10 text-primary"
+                  )}
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="shrink-0">{c.flag}</span>
+                    <span className="truncate">{c.name}</span>
+                  </span>
+                  {countryCode === c.code && <Check className="h-4 w-4 shrink-0" />}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <div className="mx-0.5 hidden h-5 w-px bg-border/60 sm:block" aria-hidden />
+
+          <NotificationBell />
+
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(iconBtn, "relative")}
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            aria-label="Toggle theme"
+          >
+            <Sun className="h-[17px] w-[17px] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+            <Moon className="absolute h-[17px] w-[17px] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+          </Button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 shrink-0 rounded-lg p-0"
+                aria-label="Account menu"
+              >
+                <Avatar className="h-8 w-8 ring-2 ring-primary/15">
+                  <AvatarImage src={session?.user?.image ?? undefined} alt="" />
+                  <AvatarFallback className="bg-gradient-to-br from-[#006F5F] to-[#0E8A72] text-[11px] text-white">
+                    {initials}
+                  </AvatarFallback>
+                </Avatar>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56 rounded-xl">
+              <div className="px-3 py-2">
+                <p className="truncate text-sm font-semibold">{session?.user?.name ?? "Admin"}</p>
+                <p className="truncate text-xs text-muted-foreground">{session?.user?.email}</p>
+                <p className="mt-1 text-[10px] text-muted-foreground">{greeting}</p>
+              </div>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href="/settings">Settings</Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => signOut({ callbackUrl: "/login" })}>
+                Sign out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
-    </div>
+    </header>
   );
 }

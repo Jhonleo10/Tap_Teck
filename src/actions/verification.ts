@@ -10,7 +10,9 @@ import {
 } from "@/lib/verification-messages";
 import {
   allDocsApproved,
+  canAdminReviewDoc,
   getDocumentDefinition,
+  VERIFICATION_DOCUMENTS,
   type DocumentType,
 } from "@/lib/verification-documents";
 import type { DocStatus, VerificationStatus } from "@prisma/client";
@@ -294,6 +296,154 @@ export async function updateProviderVerificationStatus(params: {
   return { success: true };
 }
 
+export type DocumentReviewDecision = {
+  documentType: DocumentType;
+  decision: "APPROVED" | "REUPLOAD_REQUESTED";
+  message?: string;
+};
+
+/** Batch submit after admin reviews all pending docs individually */
+export async function submitVerificationReview(params: {
+  providerId: string;
+  decisions: DocumentReviewDecision[];
+}) {
+  const { providerId, decisions } = params;
+  const { adminId, adminName } = await getAdminContext();
+
+  const provider = await prisma.provider.findUnique({
+    where: { id: providerId },
+    include: { verification: true },
+  });
+
+  if (!provider?.verification) throw new Error("Verification record not found");
+
+  if (provider.verificationStatus === "VERIFIED") {
+    throw new Error("Provider is already verified");
+  }
+
+  const reviewable = VERIFICATION_DOCUMENTS.filter((d) =>
+    canAdminReviewDoc(provider.verification![d.statusField])
+  );
+
+  if (reviewable.length === 0) {
+    throw new Error("No documents awaiting review");
+  }
+
+  if (decisions.length !== reviewable.length) {
+    throw new Error("Please review every pending document before submitting");
+  }
+
+  for (const item of decisions) {
+    const def = getDocumentDefinition(item.documentType);
+    const current = provider.verification[def.statusField];
+    if (!canAdminReviewDoc(current)) {
+      throw new Error(`${def.label} is not awaiting review`);
+    }
+    if (item.decision === "REUPLOAD_REQUESTED" && !item.message?.trim()) {
+      throw new Error(`A message is required when rejecting ${def.label}`);
+    }
+  }
+
+  const existingNotes =
+    provider.verification.documentNotes &&
+    typeof provider.verification.documentNotes === "object" &&
+    !Array.isArray(provider.verification.documentNotes)
+      ? { ...(provider.verification.documentNotes as Record<string, string>) }
+      : {};
+
+  const updateData: Record<string, unknown> = {
+    reviewedBy: adminId,
+    reviewedAt: new Date(),
+  };
+
+  for (const item of decisions) {
+    const def = getDocumentDefinition(item.documentType);
+    updateData[def.statusField] = item.decision;
+
+    if (item.decision === "REUPLOAD_REQUESTED" && item.message?.trim()) {
+      existingNotes[item.documentType] = item.message.trim();
+    } else if (item.decision === "APPROVED") {
+      delete existingNotes[item.documentType];
+    }
+  }
+
+  updateData.documentNotes = existingNotes;
+
+  await prisma.providerVerification.update({
+    where: { providerId },
+    data: updateData,
+  });
+
+  for (const item of decisions) {
+    if (item.decision === "APPROVED") {
+      await recordVerificationMessage(providerId, "DOC_APPROVED", item.documentType);
+    } else {
+      await recordVerificationMessage(
+        providerId,
+        "DOC_REUPLOAD_REQUESTED",
+        item.documentType,
+        item.message
+      );
+    }
+
+    await createAuditLog({
+      action: `DOCUMENT_${item.decision}`,
+      entityType: "ProviderVerification",
+      entityId: providerId,
+      adminId,
+      adminName,
+      metadata: { documentType: item.documentType, note: item.message },
+    });
+  }
+
+  const updated = await prisma.providerVerification.findUnique({
+    where: { providerId },
+  });
+
+  const allApproved = allDocsApproved(updated);
+  const anyReupload = decisions.some((d) => d.decision === "REUPLOAD_REQUESTED");
+
+  await prisma.provider.update({
+    where: { id: providerId },
+    data: {
+      verificationStatus: allApproved ? "VERIFIED" : anyReupload ? "PENDING" : "UNDER_REVIEW",
+      isVerified: allApproved,
+      canReceiveBookings: allApproved,
+      status: allApproved ? "ACTIVE" : "PENDING",
+    },
+  });
+
+  if (allApproved) {
+    await recordVerificationMessage(providerId, "PROVIDER_VERIFIED");
+  } else if (anyReupload) {
+    const rejectedLabels = decisions
+      .filter((d) => d.decision === "REUPLOAD_REQUESTED")
+      .map((d) => getDocumentDefinition(d.documentType).label)
+      .join(", ");
+    await recordVerificationMessage(
+      providerId,
+      "REVIEW_SUBMITTED",
+      undefined,
+      `Please re-upload only the following document(s): ${rejectedLabels}. Approved documents are locked and cannot be edited.`
+    );
+  }
+
+  await createAuditLog({
+    action: "VERIFICATION_REVIEW_SUBMITTED",
+    entityType: "Provider",
+    entityId: providerId,
+    adminId,
+    adminName,
+    metadata: { decisions, allApproved, anyReupload },
+  });
+
+  revalidatePath("/verification");
+  revalidatePath("/providers");
+  revalidatePath("/dashboard");
+
+  return { success: true, allApproved, anyReupload };
+}
+
 /** Provider app API: resubmit only when re-upload was requested */
 export async function providerResubmitDocument(params: {
   providerId: string;
@@ -308,8 +458,8 @@ export async function providerResubmitDocument(params: {
   if (!existing) throw new Error("Verification record not found");
 
   const currentStatus = existing[doc.statusField];
-  if (currentStatus !== "REUPLOAD_REQUESTED" && currentStatus !== "REJECTED") {
-    throw new Error("Re-upload is not allowed until admin requests it");
+  if (currentStatus !== "REUPLOAD_REQUESTED") {
+    throw new Error("Only documents marked for re-upload can be resubmitted");
   }
 
   const updateData: Record<string, unknown> = {

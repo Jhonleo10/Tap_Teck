@@ -2,8 +2,11 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
+import { withAction } from "@/lib/action-response";
+import { buildOrderBy, resolvePagination, toPaginatedResult } from "@/lib/prisma-pagination";
 import { resolveLocationCities, type CountryCode } from "@/lib/countries";
-import type { ProviderStatus, VerificationStatus } from "@prisma/client";
+import type { Prisma, ProviderStatus, VerificationStatus } from "@prisma/client";
+import type { ActionResponse } from "@/types/action";
 
 export interface ProviderFilters {
   status?: ProviderStatus | "ALL";
@@ -13,7 +16,52 @@ export interface ProviderFilters {
   location?: string;
   country?: string;
   search?: string;
+  page?: number;
+  pageSize?: number;
+  sortBy?: string;
+  sortOrder?: "asc" | "desc";
 }
+
+const PROVIDER_SELECT = {
+  id: true,
+  businessName: true,
+  serviceCategory: true,
+  primaryService: true,
+  location: true,
+  city: true,
+  state: true,
+  country: true,
+  status: true,
+  verificationStatus: true,
+  isVerified: true,
+  canReceiveBookings: true,
+  rating: true,
+  totalReviews: true,
+  completedJobs: true,
+  createdAt: true,
+  user: { select: { name: true, email: true, phone: true } },
+  verification: {
+    select: {
+      id: true,
+      aadhaarStatus: true,
+      panStatus: true,
+      certificateStatus: true,
+      addressStatus: true,
+      profileStatus: true,
+      reviewedAt: true,
+      rejectionReason: true,
+    },
+  },
+  _count: { select: { bookings: true } },
+} satisfies Prisma.ProviderSelect;
+
+const PROVIDER_SORT_FIELDS = {
+  createdAt: true,
+  businessName: true,
+  rating: true,
+  completedJobs: true,
+  status: true,
+} as const;
 
 function buildLocationWhere(country: string | undefined, location?: string) {
   if (!location || location === "all") return {};
@@ -27,14 +75,12 @@ function buildLocationWhere(country: string | undefined, location?: string) {
     OR: [
       { city: { in: cities } },
       { location: { in: cities } },
-      ...(location.startsWith("state:")
-        ? [{ state: location.slice(6) }]
-        : []),
+      ...(location.startsWith("state:") ? [{ state: location.slice(6) }] : []),
     ],
   };
 }
 
-export async function getProviders(filters: ProviderFilters = {}) {
+function buildProviderWhere(filters: ProviderFilters = {}): Prisma.ProviderWhereInput {
   const {
     status,
     verificationStatus,
@@ -45,18 +91,17 @@ export async function getProviders(filters: ProviderFilters = {}) {
     search,
   } = filters;
 
-  return prisma.provider.findMany({
-    where: {
-      ...(status && status !== "ALL" ? { status } : {}),
-      ...(verificationStatus && verificationStatus !== "ALL"
-        ? { verificationStatus }
-        : {}),
-      ...(category && category !== "all" ? { serviceCategory: category } : {}),
-      ...(service && service !== "all" ? { primaryService: service } : {}),
-      ...(country ? { country } : {}),
-      ...buildLocationWhere(country, location),
-      ...(search
-        ? {
+  return {
+    ...(status && status !== "ALL" ? { status } : {}),
+    ...(verificationStatus && verificationStatus !== "ALL"
+      ? { verificationStatus }
+      : {}),
+    ...(category && category !== "all" ? { serviceCategory: category } : {}),
+    ...(service && service !== "all" ? { primaryService: service } : {}),
+    ...(country ? { country } : {}),
+    ...buildLocationWhere(country, location),
+    ...(search
+      ? {
           OR: [
             { businessName: { contains: search, mode: "insensitive" } },
             { serviceCategory: { contains: search, mode: "insensitive" } },
@@ -66,87 +111,145 @@ export async function getProviders(filters: ProviderFilters = {}) {
             { user: { email: { contains: search, mode: "insensitive" } } },
           ],
         }
-        : {}),
-    },
-    include: {
-      user: { select: { name: true, email: true, phone: true } },
-      verification: true,
-    },
-    orderBy: { createdAt: "desc" },
-    take: 500,
-  });
+      : {}),
+  };
 }
 
-export async function getProvidersByVerification(
-  verificationStatus?: VerificationStatus | "ALL"
-) {
-  return prisma.provider.findMany({
-    where:
-      verificationStatus && verificationStatus !== "ALL"
-        ? { verificationStatus }
-        : undefined,
-    include: {
-      user: { select: { name: true, email: true } },
-      verification: true,
-    },
-    orderBy: { createdAt: "desc" },
-    take: 500,
-  });
+export async function getProviders(filters: ProviderFilters = {}) {
+  return withAction(async () => {
+    const { page, pageSize, skip } = resolvePagination(filters);
+    const where = buildProviderWhere(filters);
+    const orderBy = buildOrderBy(
+      filters.sortBy,
+      filters.sortOrder,
+      PROVIDER_SORT_FIELDS,
+      { createdAt: "desc" as const }
+    );
+
+    const [items, total] = await Promise.all([
+      prisma.provider.findMany({
+        where,
+        select: PROVIDER_SELECT,
+        orderBy,
+        skip,
+        take: pageSize,
+      }),
+      prisma.provider.count({ where }),
+    ]);
+
+    return toPaginatedResult(items, total, page, pageSize);
+  }, "getProviders");
 }
 
 export async function updateProviderStatus(
   providerId: string,
   status: ProviderStatus
-) {
-  await prisma.provider.update({
-    where: { id: providerId },
-    data: { status },
-  });
-  revalidatePath("/providers");
-  return { success: true };
-}
-
-export async function updateVerificationStatus(
-  providerId: string,
-  verificationStatus: VerificationStatus,
-  rejectionReason?: string
-) {
-  const isVerified = verificationStatus === "VERIFIED";
-  const canReceiveBookings = isVerified;
-
-  await prisma.$transaction([
-    prisma.provider.update({
+): Promise<ActionResponse> {
+  return withAction(async () => {
+    await prisma.provider.update({
       where: { id: providerId },
-      data: {
-        verificationStatus,
-        isVerified,
-        canReceiveBookings,
-        status: isVerified ? "ACTIVE" : verificationStatus === "REJECTED" ? "INACTIVE" : "PENDING",
-      },
-    }),
-    prisma.providerVerification.update({
-      where: { providerId },
-      data: {
-        rejectionReason: rejectionReason ?? null,
-        reviewedAt: new Date(),
-      },
-    }),
-  ]);
-
-  revalidatePath("/providers");
-  revalidatePath("/verification");
-  return { success: true };
+      data: { status },
+    });
+    revalidatePath("/providers");
+    return undefined;
+  }, "updateProviderStatus", "Provider status updated");
 }
 
-export async function updateDocumentStatus(
-  providerId: string,
-  field: "aadhaarStatus" | "panStatus" | "certificateStatus" | "addressStatus" | "profileStatus",
-  status: "APPROVED" | "REJECTED" | "PENDING"
-) {
-  await prisma.providerVerification.update({
-    where: { providerId },
-    data: { [field]: status },
-  });
-  revalidatePath("/verification");
-  return { success: true };
+export async function getProviderStats(
+  filters: Omit<ProviderFilters, "page" | "pageSize" | "sortBy" | "sortOrder"> = {}
+): Promise<ActionResponse<{ total: number; active: number; pending: number; verified: number }>> {
+  return withAction(async () => {
+    const where = buildProviderWhere(filters);
+    const [total, active, pending, verified] = await Promise.all([
+      prisma.provider.count({ where }),
+      prisma.provider.count({ where: { ...where, status: "ACTIVE" } }),
+      prisma.provider.count({
+        where: {
+          ...where,
+          verificationStatus: { in: ["PENDING", "UNDER_REVIEW"] },
+        },
+      }),
+      prisma.provider.count({ where: { ...where, isVerified: true } }),
+    ]);
+    return { total, active, pending, verified };
+  }, "getProviderStats");
+}
+
+export type ProviderListItem = Prisma.ProviderGetPayload<{ select: typeof PROVIDER_SELECT }>;
+
+export type ProviderDetail = NonNullable<
+  Prisma.ProviderGetPayload<{
+    select: {
+      id: true;
+      businessName: true;
+      serviceCategory: true;
+      primaryService: true;
+      location: true;
+      city: true;
+      state: true;
+      country: true;
+      status: true;
+      verificationStatus: true;
+      isVerified: true;
+      canReceiveBookings: true;
+      rating: true;
+      totalReviews: true;
+      completedJobs: true;
+      description: true;
+      createdAt: true;
+      user: {
+        select: {
+          id: true;
+          name: true;
+          email: true;
+          phone: true;
+          status: true;
+          createdAt: true;
+        };
+      };
+      verification: true;
+      _count: { select: { bookings: true; reviews: true } };
+    };
+  }>
+>;
+
+export async function getProviderById(
+  providerId: string
+): Promise<ActionResponse<ProviderDetail | null>> {
+  return withAction(async () => {
+    return prisma.provider.findUnique({
+      where: { id: providerId },
+      select: {
+        id: true,
+        businessName: true,
+        serviceCategory: true,
+        primaryService: true,
+        location: true,
+        city: true,
+        state: true,
+        country: true,
+        status: true,
+        verificationStatus: true,
+        isVerified: true,
+        canReceiveBookings: true,
+        rating: true,
+        totalReviews: true,
+        completedJobs: true,
+        description: true,
+        createdAt: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            status: true,
+            createdAt: true,
+          },
+        },
+        verification: true,
+        _count: { select: { bookings: true, reviews: true } },
+      },
+    });
+  }, "getProviderById");
 }

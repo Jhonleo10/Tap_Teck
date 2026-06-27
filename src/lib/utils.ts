@@ -37,6 +37,11 @@ export function generateReferralCode(name: string): string {
   return `${prefix}${suffix}`;
 }
 
+/** Short display ID for tables (first 8 chars of cuid) */
+export function shortId(id: string): string {
+  return id.slice(0, 8).toUpperCase();
+}
+
 export function generateBookingNumber(): string {
   const timestamp = Date.now().toString(36).toUpperCase();
   const random = Math.random().toString(36).substring(2, 6).toUpperCase();

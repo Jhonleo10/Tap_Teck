@@ -1,6 +1,7 @@
 "use client";
 
 import { Filter } from "lucide-react";
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -25,6 +26,9 @@ interface ListFilterBarProps {
   filters: ListFilter[];
   resultCount?: number;
   onReset: () => void;
+  onApply?: () => void;
+  extra?: ReactNode;
+  hasExtraFilters?: boolean;
 }
 
 export function ListFilterBar({
@@ -33,8 +37,12 @@ export function ListFilterBar({
   filters,
   resultCount,
   onReset,
+  onApply,
+  extra,
+  hasExtraFilters = false,
 }: ListFilterBarProps) {
-  const hasActiveFilters = filters.some((f) => f.value !== "all");
+  const hasActiveFilters =
+    filters.some((f) => f.value !== "all") || hasExtraFilters;
 
   return (
     <div className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm">
@@ -61,10 +69,15 @@ export function ListFilterBar({
               Reset
             </Button>
           )}
+          {onApply && (
+            <Button size="sm" className="h-8 rounded-lg" onClick={onApply}>
+              Apply
+            </Button>
+          )}
         </div>
       </div>
 
-      <div className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      <div className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {filters.map((filter) => (
           <div key={filter.id} className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">
@@ -84,6 +97,7 @@ export function ListFilterBar({
             </Select>
           </div>
         ))}
+        {extra}
       </div>
     </div>
   );

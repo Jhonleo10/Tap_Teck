@@ -83,8 +83,13 @@ export function canAdminReviewDoc(status: DocStatus): boolean {
   return status === "PENDING" || status === "REUPLOAD_REQUESTED";
 }
 
+/** Approved documents are locked — provider cannot re-upload */
+export function isDocLockedForProvider(status: DocStatus): boolean {
+  return status === "APPROVED";
+}
+
 export function canProviderResubmit(status: DocStatus): boolean {
-  return status === "REUPLOAD_REQUESTED" || status === "REJECTED";
+  return status === "REUPLOAD_REQUESTED";
 }
 
 export function allDocsApproved(

@@ -56,6 +56,8 @@ export function LoginForm() {
     const authError = searchParams.get("error");
     if (authError === "CredentialsSignin") {
       toast.error("Invalid email or password.");
+    } else if (authError === "Configuration") {
+      toast.error("Auth configuration error. Clear cookies and try again.");
     } else if (authError) {
       toast.error("Sign in failed. Please try again.");
     }

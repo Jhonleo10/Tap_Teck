@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { toast } from "sonner";
 import { useForm } from "react-hook-form";
@@ -34,7 +34,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { assignReward, autoAssignRewards } from "@/actions/referrals";
+import { PaginationControls } from "@/components/shared/pagination-controls";
+import { getReferrals, getRewards, assignReward, autoAssignRewards } from "@/actions/referrals";
+import { fetchReferralOperations, updateRewardStatus } from "@/actions/operations";
+import { useOperationsPoll } from "@/hooks/use-operations-poll";
+import { GlassCard } from "@/components/shared/glass-card";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 const rewardSchema = z.object({
@@ -72,18 +76,26 @@ type Performers = {
 };
 
 export function ReferralsContent({
-  referrals,
-  rewards,
+  initialReferrals,
+  initialRewards,
   performers,
   adminId,
 }: {
-  referrals: ReferralRow[];
-  rewards: RewardRow[];
+  initialReferrals: import("@/lib/pagination").PaginatedResult<ReferralRow>;
+  initialRewards: import("@/lib/pagination").PaginatedResult<RewardRow>;
   performers: Performers;
   adminId: string;
 }) {
   const [rewardDialogOpen, setRewardDialogOpen] = useState(false);
-  const [rewardList] = useState(rewards);
+  const [referralsPage, setReferralsPage] = useState(initialReferrals);
+  const [rewardsPage, setRewardsPage] = useState(initialRewards);
+  const referrals = referralsPage.items;
+  const rewardList = rewardsPage.items;
+
+  const { data: referralOps } = useOperationsPoll({
+    fetcher: useCallback(() => fetchReferralOperations(), []),
+    intervalMs: 120_000,
+  });
 
   const referralStats = useMemo(() => {
     const completed = referrals.filter((r) => r.status === "COMPLETED").length;
@@ -156,6 +168,57 @@ export function ReferralsContent({
       header: "Date",
       cell: ({ row }) => formatDate(row.original.createdAt),
     },
+    {
+      id: "rewardStatus",
+      header: "Actions",
+      cell: ({ row }) =>
+        row.original.status === "ACTIVE" ? (
+          <div className="flex gap-1">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={async () => {
+                const result = await updateRewardStatus(row.original.id, "CLAIMED");
+                if (result.success) {
+                  toast.success("Reward approved");
+                  setRewardsPage((prev) => ({
+                    ...prev,
+                    items: prev.items.map((r) =>
+                      r.id === row.original.id ? { ...r, status: "CLAIMED" } : r
+                    ),
+                  }));
+                } else {
+                  toast.error(result.error ?? "Failed");
+                }
+              }}
+            >
+              Approve
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs text-destructive"
+              onClick={async () => {
+                const result = await updateRewardStatus(row.original.id, "EXPIRED");
+                if (result.success) {
+                  toast.success("Reward rejected");
+                  setRewardsPage((prev) => ({
+                    ...prev,
+                    items: prev.items.map((r) =>
+                      r.id === row.original.id ? { ...r, status: "EXPIRED" } : r
+                    ),
+                  }));
+                } else {
+                  toast.error(result.error ?? "Failed");
+                }
+              }}
+            >
+              Reject
+            </Button>
+          </div>
+        ) : null,
+    },
   ];
 
   const onAssignReward = async (data: z.infer<typeof rewardSchema>) => {
@@ -171,7 +234,11 @@ export function ReferralsContent({
 
   const onAutoAssign = async () => {
     const result = await autoAssignRewards(adminId);
-    toast.success(`${result.count} automatic rewards assigned`);
+    if (!result.success) {
+      toast.error(result.error ?? "Failed to assign rewards");
+      return;
+    }
+    toast.success(`${result.data?.count ?? 0} automatic rewards assigned`);
   };
 
   return (
@@ -216,11 +283,49 @@ export function ReferralsContent({
       </PageHeader>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard title="Total Referrals" value={referrals.length} icon={Users} accent="teal" />
-        <StatCard title="Completed" value={referralStats.completed} icon={Gift} accent="emerald" />
-        <StatCard title="Rewards Paid" value={formatCurrency(referralStats.totalRewards)} icon={IndianRupee} accent="amber" />
-        <StatCard title="Active Rewards" value={rewardList.length} icon={Trophy} accent="blue" />
+        <StatCard
+          title="Total Referrals"
+          value={referralOps?.totalReferrals ?? referralsPage.total}
+          icon={Users}
+          accent="teal"
+        />
+        <StatCard
+          title="Conversion Rate"
+          value={
+            referralOps
+              ? `${Math.round(referralOps.conversionRate * 100)}%`
+              : referralStats.completed
+          }
+          icon={Gift}
+          accent="emerald"
+        />
+        <StatCard
+          title="Rewards Paid"
+          value={formatCurrency(referralOps?.totalRewardsPaid ?? referralStats.totalRewards)}
+          icon={IndianRupee}
+          accent="amber"
+        />
+        <StatCard title="Active Rewards" value={rewardsPage.total} icon={Trophy} accent="blue" />
       </div>
+
+      {referralOps?.topReferrers && referralOps.topReferrers.length > 0 && (
+        <GlassCard className="p-4">
+          <p className="mb-3 text-sm font-semibold">Top Referrers</p>
+          <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {referralOps.topReferrers.map((r) => (
+              <li
+                key={r.email}
+                className="flex justify-between rounded-lg border bg-muted/20 px-3 py-2 text-sm"
+              >
+                <span className="truncate font-medium">{r.name}</span>
+                <span className="shrink-0 text-muted-foreground">
+                  {r.count} refs · {formatCurrency(r.revenue)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </GlassCard>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         {referralStats.statusChart.length > 0 && (
@@ -308,8 +413,8 @@ export function ReferralsContent({
 
       <Tabs defaultValue="referrals">
         <TabsList>
-          <TabsTrigger value="referrals">Referrals ({referrals.length})</TabsTrigger>
-          <TabsTrigger value="rewards">Rewards ({rewardList.length})</TabsTrigger>
+          <TabsTrigger value="referrals">Referrals ({referralsPage.total})</TabsTrigger>
+          <TabsTrigger value="rewards">Rewards ({rewardsPage.total})</TabsTrigger>
         </TabsList>
         <TabsContent value="referrals" className="mt-4">
           <ExportButtons
@@ -323,11 +428,41 @@ export function ReferralsContent({
             filename="referrals"
           />
           <div className="mt-4">
-            <DataTable columns={referralColumns} data={referrals} searchKey="referralCode" />
+            <DataTable columns={referralColumns} data={referrals} searchKey="referralCode" showPagination={false} />
           </div>
+          <PaginationControls
+            page={referralsPage.page}
+            pageSize={referralsPage.pageSize}
+            total={referralsPage.total}
+            onPageChange={(p) => {
+              getReferrals({ page: p, pageSize: referralsPage.pageSize }).then((r) => {
+                if (r.success && r.data) setReferralsPage(r.data);
+              });
+            }}
+            onPageSizeChange={(size) => {
+              getReferrals({ page: 1, pageSize: size }).then((r) => {
+                if (r.success && r.data) setReferralsPage(r.data);
+              });
+            }}
+          />
         </TabsContent>
         <TabsContent value="rewards" className="mt-4">
-          <DataTable columns={rewardColumns} data={rewardList} searchKey="title" />
+          <DataTable columns={rewardColumns} data={rewardList} searchKey="title" showPagination={false} />
+          <PaginationControls
+            page={rewardsPage.page}
+            pageSize={rewardsPage.pageSize}
+            total={rewardsPage.total}
+            onPageChange={(p) => {
+              getRewards({ page: p, pageSize: rewardsPage.pageSize }).then((r) => {
+                if (r.success && r.data) setRewardsPage(r.data);
+              });
+            }}
+            onPageSizeChange={(size) => {
+              getRewards({ page: 1, pageSize: size }).then((r) => {
+                if (r.success && r.data) setRewardsPage(r.data);
+              });
+            }}
+          />
         </TabsContent>
       </Tabs>
     </div>

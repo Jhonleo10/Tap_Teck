@@ -27,6 +27,9 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { PaginationControls } from "@/components/shared/pagination-controls";
 import { FileX } from "lucide-react";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
+import { cn } from "@/lib/utils";
+
+const EMPTY_SORTING: SortingState = [];
 
 function getNestedValue(obj: unknown, path: string): string {
   const value = path.split(".").reduce<unknown>((acc, key) => {
@@ -62,10 +65,9 @@ export function DataTable<TData, TValue>({
   searchPlaceholder = "Search...",
   pageSize: initialPageSize = DEFAULT_PAGE_SIZE,
   defaultSearch = "",
-  defaultSorting = [],
+  defaultSorting = EMPTY_SORTING,
   showPagination = true,
 }: DataTableProps<TData, TValue>) {
-  const [sorting, setSorting] = useState<SortingState>(defaultSorting);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [globalFilter, setGlobalFilter] = useState(defaultSearch);
   const [pageSize, setPageSize] = useState(initialPageSize);
@@ -75,6 +77,27 @@ export function DataTable<TData, TValue>({
     () => searchKeys ?? (searchKey ? [searchKey] : []),
     [searchKeys, searchKey]
   );
+
+  const columnIds = useMemo(() => {
+    return new Set(
+      columns
+        .map((col) => {
+          if ("id" in col && col.id) return col.id;
+          if ("accessorKey" in col && col.accessorKey) return String(col.accessorKey);
+          return null;
+        })
+        .filter(Boolean) as string[]
+    );
+  }, [columns]);
+
+  const safeDefaultSorting = useMemo(
+    () => defaultSorting.filter((sort) => columnIds.has(sort.id)),
+    // Serialize so inline `defaultSorting={[...]}` from parents does not retrigger every render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [JSON.stringify(defaultSorting), columnIds]
+  );
+
+  const [sorting, setSorting] = useState<SortingState>(safeDefaultSorting);
 
   const globalFilterFn: FilterFn<TData> = useMemo(
     () => (row, _columnId, filterValue) => {
@@ -139,11 +162,12 @@ export function DataTable<TData, TValue>({
         </div>
       )}
 
-      <div className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm">
-        <Table>
-          <TableHeader>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id} className="bg-muted/30 hover:bg-muted/30">
+      <div className="overflow-hidden rounded-2xl border border-border/40 bg-card shadow-sm">
+        <div className="max-h-[min(70vh,600px)] overflow-auto">
+          <Table>
+            <TableHeader className="sticky top-0 z-10 bg-muted/95 backdrop-blur-sm">
+              {table.getHeaderGroups().map((headerGroup) => (
+                <TableRow key={headerGroup.id} className="border-b border-border/50 hover:bg-muted/95">
                 {headerGroup.headers.map((header) => (
                   <TableHead key={header.id}>
                     {header.isPlaceholder
@@ -156,8 +180,14 @@ export function DataTable<TData, TValue>({
           </TableHeader>
           <TableBody>
             {table.getRowModel().rows?.length ? (
-              table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id}>
+              table.getRowModel().rows.map((row, rowIndex) => (
+                <TableRow
+                  key={row.id}
+                  className={cn(
+                    "transition-colors hover:bg-primary/[0.03]",
+                    rowIndex % 2 === 1 && "bg-muted/20"
+                  )}
+                >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -178,6 +208,7 @@ export function DataTable<TData, TValue>({
             )}
           </TableBody>
         </Table>
+        </div>
       </div>
 
       {showPagination && filteredCount > 0 && (
