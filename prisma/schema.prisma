@@ -267,26 +267,28 @@ model ServiceCategory {
 }
 
 model PlatformService {
-  id          String          @id @default(cuid())
-  catalogId   Int             @unique
-  title       String
-  description String?         @db.Text
-  icon        String?
-  categoryId  String
-  isActive    Boolean         @default(true)
-  createdAt   DateTime        @default(now())
-  category    ServiceCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  subServices SubService[]
+  id                   String          @id @default(cuid())
+  catalogId            Int             @unique
+  title                String
+  description          String?         @db.Text
+  icon                 String?
+  categoryId           String
+  isActive             Boolean         @default(true)
+  commissionPercentage Float?
+  createdAt            DateTime        @default(now())
+  category             ServiceCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  subServices          SubService[]
 
   @@index([categoryId])
   @@map("platform_services")
 }
 
 model SubService {
-  id        String          @id @default(cuid())
-  name      String
-  serviceId String
-  service   PlatformService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  id                   String          @id @default(cuid())
+  name                 String
+  serviceId            String
+  commissionPercentage Float?
+  service              PlatformService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
 
   @@unique([serviceId, name])
   @@map("sub_services")

@@ -66,8 +66,8 @@ export async function fetchRewardLeaderboard(country?: string) {
   return withAction(() => getRewardLeaderboard(country), "fetchRewardLeaderboard");
 }
 
-export async function fetchReferralOperations() {
-  return withAction(() => getReferralOperationsStats(), "fetchReferralOperations");
+export async function fetchReferralOperations(country?: string) {
+  return withAction(() => getReferralOperationsStats(country), "fetchReferralOperations");
 }
 
 export async function fetchMonthlyLeaderboard(country?: string) {

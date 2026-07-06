@@ -24,7 +24,6 @@ export interface UserStats {
   total: number;
   active: number;
   inactive: number;
-  suspended: number;
 }
 
 const USER_SELECT = {
@@ -55,6 +54,7 @@ function buildUserWhere(filters: UserFilters = {}): Prisma.UserWhereInput {
 
   return {
     role: "USER",
+    status: { not: "SUSPENDED" },
     ...(status && status !== "ALL" ? { status } : {}),
     ...(activity === "WITH_BOOKINGS"
       ? { bookings: { some: {} } }
@@ -93,13 +93,12 @@ export async function getUserStats(
 ): Promise<ActionResponse<UserStats>> {
   return withAction(async () => {
     const where = buildUserWhere(filters);
-    const [total, active, inactive, suspended] = await Promise.all([
+    const [total, active, inactive] = await Promise.all([
       prisma.user.count({ where }),
       prisma.user.count({ where: { ...where, status: "ACTIVE" } }),
       prisma.user.count({ where: { ...where, status: "INACTIVE" } }),
-      prisma.user.count({ where: { ...where, status: "SUSPENDED" } }),
     ]);
-    return { total, active, inactive, suspended };
+    return { total, active, inactive };
   }, "getUserStats");
 }
 

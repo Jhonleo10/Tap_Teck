@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useEffect, useCallback } from "react";
+import { useState, useTransition, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   BarChart,
@@ -41,37 +41,37 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { LoadingSpinner } from "@/components/shared/loading-spinner";
-import { getAnalyticsData, getFilterOptions } from "@/actions/analytics";
+import { getAnalyticsData } from "@/actions/analytics";
 import { formatCurrency } from "@/lib/utils";
 import { useCountry } from "@/components/providers/country-provider";
 import { getLocationDisplayLabel } from "@/lib/countries";
+import { getCountrySubServiceOptions } from "@/lib/catalog";
 import { IndianRupee, CalendarCheck } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 
 interface AnalyticsContentProps {
   initialData: Awaited<ReturnType<typeof getAnalyticsData>>;
-  filterOptions: {
-    services: string[];
-    locations: string[];
-    categories: string[];
-  };
 }
 
 type BreakdownRow = { name: string; revenue: number; bookings?: number };
 
-export function AnalyticsContent({ initialData, filterOptions }: AnalyticsContentProps) {
+export function AnalyticsContent({ initialData }: AnalyticsContentProps) {
   const searchParams = useSearchParams();
   const urlPeriod = searchParams.get("period") as "day" | "week" | "month" | "year" | null;
   const { countryCode, country, services, isReady } = useCountry();
   const [data, setData] = useState(initialData);
-  const [filters, setFilters] = useState(filterOptions);
   const [period, setPeriod] = useState<"day" | "week" | "month" | "year">(
     urlPeriod && ["day", "week", "month", "year"].includes(urlPeriod) ? urlPeriod : "month"
   );
   const [service, setService] = useState<string>("all");
+  const [subService, setSubService] = useState<string>("all");
   const [location, setLocation] = useState<string>("all");
-  const [category, setCategory] = useState<string>("all");
   const [isPending, startTransition] = useTransition();
+
+  const subServiceOptions = useMemo(
+    () => getCountrySubServiceOptions(countryCode, service),
+    [countryCode, service]
+  );
 
   const fmt = useCallback(
     (amount: number) => formatCurrency(amount, country.currency, country.locale),
@@ -79,14 +79,22 @@ export function AnalyticsContent({ initialData, filterOptions }: AnalyticsConten
   );
 
   const fetchData = useCallback(
-    (p: typeof period, s: string, l: string, c = countryCode) => {
+    (
+      p: typeof period,
+      s: string,
+      sub: string,
+      l: string,
+      c = countryCode
+    ) => {
       startTransition(async () => {
-        const [result, opts] = await Promise.all([
-          getAnalyticsData(p, s === "all" ? undefined : s, l === "all" ? undefined : l, c),
-          getFilterOptions(c),
-        ]);
+        const result = await getAnalyticsData(
+          p,
+          s === "all" ? undefined : s,
+          l === "all" ? undefined : l,
+          c,
+          sub === "all" ? undefined : sub
+        );
         setData(result);
-        setFilters(opts);
       });
     },
     [countryCode]
@@ -95,18 +103,14 @@ export function AnalyticsContent({ initialData, filterOptions }: AnalyticsConten
   useEffect(() => {
     if (!isReady) return;
     if (urlPeriod && ["day", "week", "month", "year"].includes(urlPeriod)) {
-      fetchData(urlPeriod, "all", "all", countryCode);
+      fetchData(urlPeriod, "all", "all", "all", countryCode);
       return;
     }
     setService("all");
+    setSubService("all");
     setLocation("all");
-    setCategory("all");
-    fetchData(period, "all", "all", countryCode);
+    fetchData(period, "all", "all", "all", countryCode);
   }, [countryCode, isReady]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const filteredByCategory = category === "all"
-    ? data.revenueByCategory
-    : data.revenueByCategory.filter((r) => r.name === category);
 
   const breakdownColumns: ColumnDef<BreakdownRow>[] = [
     { accessorKey: "name", header: "Name" },
@@ -132,8 +136,8 @@ export function AnalyticsContent({ initialData, filterOptions }: AnalyticsConten
         <ExportButtons
           data={[
             ...data.revenueByService.map((r) => ({ type: "Service", name: r.name, revenue: r.revenue })),
+            ...data.revenueBySubService.map((r) => ({ type: "Sub-Service", name: r.name, revenue: r.revenue })),
             ...data.revenueByLocation.map((r) => ({ type: "Location", name: r.name, revenue: r.revenue })),
-            ...filteredByCategory.map((r) => ({ type: "Category", name: r.name, revenue: r.revenue })),
           ]}
           filename="analytics-breakdown"
           title="Business Analytics Breakdown"
@@ -152,7 +156,7 @@ export function AnalyticsContent({ initialData, filterOptions }: AnalyticsConten
           onValueChange={(v) => {
             const p = v as typeof period;
             setPeriod(p);
-            fetchData(p, service, location);
+            fetchData(p, service, subService, location);
           }}
         >
           <SelectTrigger className="w-32 rounded-xl">
@@ -169,7 +173,8 @@ export function AnalyticsContent({ initialData, filterOptions }: AnalyticsConten
           value={service}
           onValueChange={(v) => {
             setService(v);
-            fetchData(period, v, location);
+            setSubService("all");
+            fetchData(period, v, "all", location);
           }}
         >
           <SelectTrigger className="w-44 rounded-xl">
@@ -178,7 +183,29 @@ export function AnalyticsContent({ initialData, filterOptions }: AnalyticsConten
           <SelectContent>
             <SelectItem value="all">All Services</SelectItem>
             {services.map((s) => (
-              <SelectItem key={s.id} value={s.title}>{s.title}</SelectItem>
+              <SelectItem key={s.id} value={s.title}>
+                {s.title}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          key={`${countryCode}-${service}`}
+          value={subService}
+          onValueChange={(v) => {
+            setSubService(v);
+            fetchData(period, service, v, location);
+          }}
+        >
+          <SelectTrigger className="w-48 rounded-xl">
+            <SelectValue placeholder="Sub-Service" />
+          </SelectTrigger>
+          <SelectContent className="max-h-[min(20rem,70vh)] overflow-y-auto">
+            <SelectItem value="all">All Sub-Services</SelectItem>
+            {subServiceOptions.map((sub) => (
+              <SelectItem key={sub} value={sub}>
+                {sub}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -187,7 +214,7 @@ export function AnalyticsContent({ initialData, filterOptions }: AnalyticsConten
           value={location}
           onValueChange={(v) => {
             setLocation(v);
-            fetchData(period, service, v);
+            fetchData(period, service, subService, v);
           }}
         >
           <SelectTrigger className="w-44 rounded-xl">
@@ -209,17 +236,6 @@ export function AnalyticsContent({ initialData, filterOptions }: AnalyticsConten
                   </SelectItem>
                 ))}
               </SelectGroup>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={category} onValueChange={setCategory}>
-          <SelectTrigger className="w-40 rounded-xl">
-            <SelectValue placeholder="Category" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Categories</SelectItem>
-            {filters.categories.map((c) => (
-              <SelectItem key={c} value={c}>{c}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -271,12 +287,12 @@ export function AnalyticsContent({ initialData, filterOptions }: AnalyticsConten
               </ResponsiveContainer>
             </ChartCard>
 
-            <ChartCard title="Revenue by Category">
+            <ChartCard title="Revenue by Sub-Service">
               <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={filteredByCategory} layout="vertical">
+                <BarChart data={data.revenueBySubService.slice(0, 10)} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
                   <XAxis type="number" tick={{ fontSize: 11 }} />
-                  <YAxis dataKey="name" type="category" width={100} tick={{ fontSize: 11 }} />
+                  <YAxis dataKey="name" type="category" width={120} tick={{ fontSize: 11 }} />
                   <Tooltip formatter={(v: number) => fmt(v)} />
                   <Bar dataKey="revenue" fill="#0E8A72" radius={[0, 6, 6, 0]} />
                 </BarChart>
@@ -324,6 +340,38 @@ export function AnalyticsContent({ initialData, filterOptions }: AnalyticsConten
                       </TableRow>
                     ) : (
                       data.revenueByService.map((row) => (
+                        <TableRow key={row.name}>
+                          <TableCell className="font-medium">{row.name}</TableCell>
+                          <TableCell className="text-right">{fmt(row.revenue)}</TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+
+            <Card className="border-border/60">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Revenue by Sub-Service (Table)</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Sub-Service</TableHead>
+                      <TableHead className="text-right">Revenue</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {data.revenueBySubService.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={2} className="text-center text-muted-foreground py-8">
+                          No data for selected filters
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      data.revenueBySubService.map((row) => (
                         <TableRow key={row.name}>
                           <TableCell className="font-medium">{row.name}</TableCell>
                           <TableCell className="text-right">{fmt(row.revenue)}</TableCell>

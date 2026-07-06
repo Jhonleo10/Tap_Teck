@@ -102,13 +102,27 @@ export async function getRewardLeaderboard(
   return entries;
 }
 
-export async function getReferralOperationsStats(): Promise<ReferralOperationsStats> {
+export async function getReferralOperationsStats(
+  country?: string
+): Promise<ReferralOperationsStats> {
+  const countryWhere = country
+    ? {
+        OR: [
+          { inviter: { provider: { country } } },
+          { inviter: { bookings: { some: { country } } } },
+          { referredUser: { bookings: { some: { country } } } },
+        ],
+      }
+    : {};
+
   const [total, completed, rewardsSum, referrers] = await Promise.all([
-    prisma.referral.count(),
-    prisma.referral.count({ where: { status: "COMPLETED" } }),
-    prisma.referral.aggregate({ _sum: { rewardAmount: true } }),
+    prisma.referral.count({ where: countryWhere }),
+    prisma.referral.count({ where: { ...countryWhere, status: "COMPLETED" } }),
+    prisma.referral.aggregate({ where: countryWhere, _sum: { rewardAmount: true } }),
     prisma.user.findMany({
-      where: { referralsMade: { some: {} } },
+      where: {
+        referralsMade: { some: countryWhere },
+      },
       select: {
         name: true,
         email: true,

@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 
 const statusVariants: Record<string, "default" | "secondary" | "destructive" | "success" | "warning" | "outline"> = {
+  CLAIMED: "success",
   ACTIVE: "success",
   VERIFIED: "success",
   COMPLETED: "success",

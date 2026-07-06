@@ -20,7 +20,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  updateCommission,
   updateReferralReward,
   updateGiftRules,
   syncCatalogFromSource,
@@ -31,6 +30,7 @@ import {
   createPlatformService,
   createSubService,
 } from "@/actions/settings";
+import { CommissionSettingsTab } from "@/components/settings/commission-settings-tab";
 import { getCatalogStats } from "@/lib/catalog";
 import { useCountry } from "@/components/providers/country-provider";
 import { cn } from "@/lib/utils";
@@ -42,13 +42,14 @@ type Settings = {
   giftRules: unknown;
 };
 
-type SubService = { id: string; name: string };
+type SubService = { id: string; name: string; commissionPercentage: number | null };
 type PlatformService = {
   id: string;
   catalogId: number;
   title: string;
   description: string | null;
   isActive: boolean;
+  commissionPercentage: number | null;
   subServices: SubService[];
 };
 type Category = {
@@ -72,7 +73,6 @@ export function SettingsContent({
     new Set(initialCategories.slice(0, 2).map((c) => c.id))
   );
   const [expandedServices, setExpandedServices] = useState<Set<string>>(new Set());
-  const [commission, setCommission] = useState(settings.commissionPercentage);
   const [referralReward, setReferralReward] = useState(settings.referralRewardAmount);
   const [giftRules, setGiftRules] = useState(
     JSON.stringify(settings.giftRules ?? { minRating: 4.5, minJobs: 50 }, null, 2)
@@ -87,11 +87,6 @@ export function SettingsContent({
   const [newSubServiceName, setNewSubServiceName] = useState("");
 
   const { country } = useCountry();
-
-  const saveCommission = async () => {
-    await updateCommission(commission);
-    toast.success("Commission updated");
-  };
 
   const saveReferralReward = async () => {
     await updateReferralReward(referralReward);
@@ -181,7 +176,13 @@ export function SettingsContent({
     setCategories((prev) =>
       prev.map((cat) =>
         cat.id === newServiceCategoryId
-          ? { ...cat, services: [...cat.services, { ...svc, subServices: [] }] }
+          ? {
+              ...cat,
+              services: [
+                ...cat.services,
+                { ...svc, commissionPercentage: null, subServices: [] },
+              ],
+            }
           : cat
       )
     );
@@ -204,7 +205,10 @@ export function SettingsContent({
         ...cat,
         services: cat.services.map((s) =>
           s.id === newSubServiceId
-            ? { ...s, subServices: [...s.subServices, sub] }
+            ? {
+                ...s,
+                subServices: [...s.subServices, { ...sub, commissionPercentage: null }],
+              }
             : s
         ),
       }))
@@ -333,25 +337,10 @@ export function SettingsContent({
         </TabsContent>
 
         <TabsContent value="commission" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Commission Percentage</CardTitle>
-              <CardDescription>Platform fee on each completed booking</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-wrap items-end gap-4">
-              <div className="space-y-2 flex-1 max-w-xs">
-                <Label>Commission (%)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={commission}
-                  onChange={(e) => setCommission(parseFloat(e.target.value))}
-                />
-              </div>
-              <Button onClick={saveCommission}>Save Changes</Button>
-            </CardContent>
-          </Card>
+          <CommissionSettingsTab
+            defaultCommission={settings.commissionPercentage}
+            categories={categories}
+          />
         </TabsContent>
 
         <TabsContent value="referral" className="mt-4">

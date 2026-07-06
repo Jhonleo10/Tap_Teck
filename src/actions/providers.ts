@@ -11,11 +11,13 @@ import type { ActionResponse } from "@/types/action";
 export interface ProviderFilters {
   status?: ProviderStatus | "ALL";
   verificationStatus?: VerificationStatus | "ALL";
-  category?: string;
   service?: string;
+  subService?: string;
   location?: string;
   country?: string;
   search?: string;
+  dateFrom?: string;
+  dateTo?: string;
   page?: number;
   pageSize?: number;
   sortBy?: string;
@@ -80,15 +82,50 @@ function buildLocationWhere(country: string | undefined, location?: string) {
   };
 }
 
+function buildServiceWhere(service?: string, subService?: string): Prisma.ProviderWhereInput {
+  const clauses: Prisma.ProviderWhereInput[] = [];
+
+  if (service && service !== "all") {
+    clauses.push({
+      OR: [
+        { primaryService: service },
+        { bookings: { some: { serviceName: service } } },
+      ],
+    });
+  }
+
+  if (subService && subService !== "all") {
+    clauses.push({
+      OR: [
+        { primaryService: subService },
+        {
+          bookings: {
+            some: {
+              subServiceName: subService,
+              ...(service && service !== "all" ? { serviceName: service } : {}),
+            },
+          },
+        },
+      ],
+    });
+  }
+
+  if (clauses.length === 0) return {};
+  if (clauses.length === 1) return clauses[0];
+  return { AND: clauses };
+}
+
 function buildProviderWhere(filters: ProviderFilters = {}): Prisma.ProviderWhereInput {
   const {
     status,
     verificationStatus,
-    category,
     service,
+    subService,
     location,
     country,
     search,
+    dateFrom,
+    dateTo,
   } = filters;
 
   return {
@@ -96,15 +133,23 @@ function buildProviderWhere(filters: ProviderFilters = {}): Prisma.ProviderWhere
     ...(verificationStatus && verificationStatus !== "ALL"
       ? { verificationStatus }
       : {}),
-    ...(category && category !== "all" ? { serviceCategory: category } : {}),
-    ...(service && service !== "all" ? { primaryService: service } : {}),
+    ...buildServiceWhere(service, subService),
     ...(country ? { country } : {}),
     ...buildLocationWhere(country, location),
+    ...(dateFrom || dateTo
+      ? {
+          createdAt: {
+            ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
+            ...(dateTo ? { lte: new Date(dateTo) } : {}),
+          },
+        }
+      : {}),
     ...(search
       ? {
           OR: [
+            { id: { contains: search, mode: "insensitive" } },
             { businessName: { contains: search, mode: "insensitive" } },
-            { serviceCategory: { contains: search, mode: "insensitive" } },
+            { primaryService: { contains: search, mode: "insensitive" } },
             { location: { contains: search, mode: "insensitive" } },
             { city: { contains: search, mode: "insensitive" } },
             { user: { name: { contains: search, mode: "insensitive" } } },

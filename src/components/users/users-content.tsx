@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import { toast } from "sonner";
-import { Users, UserMinus, Eye } from "lucide-react";
+import { Users, UserCheck, UserX, Eye } from "lucide-react";
 import {
   AreaChart,
   Area,
@@ -55,7 +55,6 @@ export function UsersContent({
   const initialSearch = searchParams.get("q") ?? "";
   const [stats, setStats] = useState(initialStats);
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [bookingsFilter, setBookingsFilter] = useState<string>("all");
   const [referralFilter, setReferralFilter] = useState<string>("all");
   const [dateRange, setDateRange] = useState<DateRange>(EMPTY_DATE_RANGE);
   const [search, setSearch] = useState(initialSearch);
@@ -71,12 +70,6 @@ export function UsersContent({
   const buildFilters = () => ({
     search: search || undefined,
     status: statusFilter === "all" ? ("ALL" as const) : (statusFilter as UserStatus),
-    activity:
-      bookingsFilter === "with_bookings"
-        ? ("WITH_BOOKINGS" as const)
-        : bookingsFilter === "no_bookings"
-          ? ("NO_BOOKINGS" as const)
-          : ("ALL" as const),
     hasReferral:
       referralFilter === "has_code"
         ? ("YES" as const)
@@ -126,7 +119,6 @@ export function UsersContent({
 
   const resetFilters = () => {
     setStatusFilter("all");
-    setBookingsFilter("all");
     setReferralFilter("all");
     setDateRange(EMPTY_DATE_RANGE);
     setSearch("");
@@ -230,9 +222,10 @@ export function UsersContent({
         />
       </PageHeader>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-3">
         <StatCard title="Total Users" value={stats.total} icon={Users} accent="teal" />
-        <StatCard title="Suspended" value={stats.suspended} icon={UserMinus} accent="rose" />
+        <StatCard title="Active" value={stats.active} icon={UserCheck} accent="emerald" />
+        <StatCard title="Inactive" value={stats.inactive} icon={UserX} accent="amber" />
       </div>
 
       {growthChart.length > 0 && (
@@ -262,7 +255,7 @@ export function UsersContent({
       )}
 
       <ListFilterBar
-        description="Filter by status, bookings, referrals, and join date"
+        description="Filter by status, referrals, and join date"
         resultCount={data.total}
         onReset={resetFilters}
         hasExtraFilters={hasActiveDateRange(dateRange)}
@@ -277,18 +270,6 @@ export function UsersContent({
               { value: "all", label: "All Statuses" },
               { value: "ACTIVE", label: "Active" },
               { value: "INACTIVE", label: "Inactive" },
-              { value: "SUSPENDED", label: "Suspended" },
-            ],
-          },
-          {
-            id: "bookings",
-            label: "Bookings",
-            value: bookingsFilter,
-            onChange: setBookingsFilter,
-            options: [
-              { value: "all", label: "All Users" },
-              { value: "with_bookings", label: "With Bookings" },
-              { value: "no_bookings", label: "No Bookings" },
             ],
           },
           {

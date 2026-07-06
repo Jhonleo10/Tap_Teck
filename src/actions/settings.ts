@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
 import { syncServiceCatalog } from "@/lib/sync-catalog";
+import { clampCommission } from "@/lib/commission";
+import { withAction } from "@/lib/action-response";
 
 export async function getSettings() {
   let settings = await prisma.appSettings.findFirst();
@@ -25,19 +27,83 @@ export async function getSettings() {
 }
 
 export async function updateCommission(percentage: number) {
+  const value = clampCommission(percentage);
   const settings = await prisma.appSettings.findFirst();
   if (settings) {
     await prisma.appSettings.update({
       where: { id: settings.id },
-      data: { commissionPercentage: percentage },
+      data: { commissionPercentage: value },
     });
   } else {
     await prisma.appSettings.create({
-      data: { commissionPercentage: percentage },
+      data: { commissionPercentage: value },
     });
   }
   revalidatePath("/settings");
   return { success: true };
+}
+
+export async function applyDefaultCommissionToAll() {
+  return withAction(async () => {
+    const settings = await prisma.appSettings.findFirst();
+    const percentage = clampCommission(settings?.commissionPercentage ?? 10);
+
+    await prisma.$transaction([
+      prisma.platformService.updateMany({ data: { commissionPercentage: percentage } }),
+      prisma.subService.updateMany({ data: { commissionPercentage: percentage } }),
+    ]);
+
+    revalidatePath("/settings");
+    return { updated: percentage };
+  }, "applyDefaultCommissionToAll", "Default commission applied to all services");
+}
+
+export interface CommissionRateUpdate {
+  serviceId: string;
+  commissionPercentage: number | null;
+}
+
+export interface SubServiceCommissionRateUpdate {
+  subServiceId: string;
+  commissionPercentage: number | null;
+}
+
+export async function saveCommissionRates(params: {
+  defaultPercentage: number;
+  services: CommissionRateUpdate[];
+  subServices: SubServiceCommissionRateUpdate[];
+}) {
+  return withAction(async () => {
+    const defaultPercentage = clampCommission(params.defaultPercentage);
+
+    const settings = await prisma.appSettings.findFirst();
+    if (settings) {
+      await prisma.appSettings.update({
+        where: { id: settings.id },
+        data: { commissionPercentage: defaultPercentage },
+      });
+    } else {
+      await prisma.appSettings.create({ data: { commissionPercentage: defaultPercentage } });
+    }
+
+    await prisma.$transaction([
+      ...params.services.map((s) =>
+        prisma.platformService.update({
+          where: { id: s.serviceId },
+          data: { commissionPercentage: s.commissionPercentage },
+        })
+      ),
+      ...params.subServices.map((s) =>
+        prisma.subService.update({
+          where: { id: s.subServiceId },
+          data: { commissionPercentage: s.commissionPercentage },
+        })
+      ),
+    ]);
+
+    revalidatePath("/settings");
+    return undefined;
+  }, "saveCommissionRates", "Commission rates saved");
 }
 
 export async function updateReferralReward(amount: number) {

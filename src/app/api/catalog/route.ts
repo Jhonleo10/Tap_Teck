@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCountryServices, type CountryCode } from "@/lib/countries";
+import { resolveCommissionRate } from "@/lib/commission";
 
 /** Public catalog API for React Native user & provider apps */
 export async function GET(request: Request) {
@@ -22,6 +23,9 @@ export async function GET(request: Request) {
   const countryServices = getCountryServices(country);
   const countryTitles = new Set(countryServices.map((s) => s.title));
 
+  const settings = await prisma.appSettings.findFirst();
+  const defaultCommission = settings?.commissionPercentage ?? 10;
+
   const categories = dbCategories
     .map((cat) => ({
       id: cat.slug ?? cat.id,
@@ -30,24 +34,36 @@ export async function GET(request: Request) {
       icon: cat.icon,
       services: cat.services
         .filter((svc) => countryTitles.has(svc.title) || !cat.slug)
-        .map((svc) => ({
-          id: svc.catalogId,
-          title: svc.title,
-          description: svc.description,
-          icon: svc.icon,
-          subServices: svc.subServices.map((sub) => sub.name),
-        })),
+        .map((svc) => {
+          const serviceCommission = resolveCommissionRate({
+            defaultPercentage: defaultCommission,
+            servicePercentage: svc.commissionPercentage,
+          });
+          return {
+            id: svc.catalogId,
+            title: svc.title,
+            description: svc.description,
+            icon: svc.icon,
+            commissionPercentage: serviceCommission,
+            subServices: svc.subServices.map((sub) => ({
+              name: sub.name,
+              commissionPercentage: resolveCommissionRate({
+                defaultPercentage: defaultCommission,
+                servicePercentage: svc.commissionPercentage,
+                subServicePercentage: sub.commissionPercentage,
+              }),
+            })),
+          };
+        }),
     }))
     .filter((cat) => cat.services.length > 0);
-
-  const settings = await prisma.appSettings.findFirst();
 
   return NextResponse.json({
     country,
     categories,
     settings: settings
       ? {
-          commissionPercentage: settings.commissionPercentage,
+          commissionPercentage: defaultCommission,
           referralRewardAmount: settings.referralRewardAmount,
         }
       : null,

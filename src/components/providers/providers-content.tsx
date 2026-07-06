@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, useTransition } from "react";
+import { useMemo, useState, useEffect, useTransition, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import { toast } from "sonner";
@@ -20,26 +20,34 @@ import { StatCard } from "@/components/shared/stat-card";
 import { ChartCard, CHART_COLORS } from "@/components/shared/chart-card";
 import { DataTable } from "@/components/shared/data-table";
 import { ExportButtons } from "@/components/shared/export-buttons";
-import { ListFilterBar } from "@/components/shared/list-filter-bar";
 import { DateRangeFilter } from "@/components/shared/date-range-filter";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { Switch } from "@/components/ui/switch";
+import { LoadingCard } from "@/components/shared/loading-card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ProviderDetailDialog } from "@/components/providers/provider-detail-dialog";
 import { PaginationControls } from "@/components/shared/pagination-controls";
-import {
-  updateProviderStatus,
-  getProviders,
-  getProviderById,
-  getProviderStats,
-} from "@/actions/providers";
+import { getProviders, getProviderById, getProviderStats } from "@/actions/providers";
 import { formatDate, shortId } from "@/lib/utils";
-import { EMPTY_DATE_RANGE, hasActiveDateRange, isWithinDateRange, type DateRange } from "@/lib/date-filters";
+import {
+  EMPTY_DATE_RANGE,
+  hasActiveDateRange,
+  type DateRange,
+} from "@/lib/date-filters";
 import { useCountry } from "@/components/providers/country-provider";
-import { getCountryCategories, getLocationDisplayLabel } from "@/lib/countries";
-import { getCountryServicesByCategory } from "@/lib/catalog";
+import { getLocationDisplayLabel } from "@/lib/countries";
+import { getCountrySubServiceOptions, getCategoryLabel } from "@/lib/catalog";
 import type { ServiceCategoryId } from "@/lib/services-data";
-import type { ProviderStatus } from "@prisma/client";
+import type { ProviderStatus, VerificationStatus } from "@prisma/client";
 
 type ProviderRow = {
   id: string;
@@ -69,37 +77,94 @@ export function ProvidersContent({
 }) {
   const searchParams = useSearchParams();
   const initialSearch = searchParams.get("q") ?? "";
-  const { countryCode, country, locationOptions, isReady } = useCountry();
+  const { countryCode, country, services, isReady } = useCountry();
   const [data, setData] = useState(initialData);
   const [stats, setStats] = useState(initialStats);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [verificationFilter, setVerificationFilter] = useState<string>("all");
-  const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [serviceFilter, setServiceFilter] = useState<string>("all");
+  const [subServiceFilter, setSubServiceFilter] = useState<string>("all");
   const [locationFilter, setLocationFilter] = useState<string>("all");
   const [dateRange, setDateRange] = useState<DateRange>(EMPTY_DATE_RANGE);
-  const [detailProvider, setDetailProvider] = useState<import("@/actions/providers").ProviderDetail | null>(null);
+  const [search, setSearch] = useState(initialSearch);
+  const [detailProvider, setDetailProvider] = useState<
+    import("@/actions/providers").ProviderDetail | null
+  >(null);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [, startTransition] = useTransition();
+  const [isPending, startTransition] = useTransition();
 
-  const categories = useMemo(
-    () => getCountryCategories(countryCode),
-    [countryCode]
+  const subServiceOptions = useMemo(
+    () => getCountrySubServiceOptions(countryCode, serviceFilter),
+    [countryCode, serviceFilter]
   );
 
-  const catalogServices = useMemo(
-    () =>
-      getCountryServicesByCategory(
-        countryCode,
-        categoryFilter === "all"
-          ? "all"
-          : (categoryFilter as Exclude<ServiceCategoryId, "all">)
-      ),
-    [countryCode, categoryFilter]
+  const loadProviders = useCallback(
+    (
+      page = 1,
+      pageSize = data.pageSize,
+      overrides?: Partial<{
+        status: string;
+        verification: string;
+        service: string;
+        subService: string;
+        location: string;
+        search: string;
+        dateRange: DateRange;
+      }>
+    ) => {
+      const status = overrides?.status ?? statusFilter;
+      const verification = overrides?.verification ?? verificationFilter;
+      const service = overrides?.service ?? serviceFilter;
+      const subService = overrides?.subService ?? subServiceFilter;
+      const location = overrides?.location ?? locationFilter;
+      const query = overrides?.search ?? search;
+      const range = overrides?.dateRange ?? dateRange;
+
+      const filters = {
+        country: countryCode,
+        status: (status === "all" ? "ALL" : status) as ProviderStatus | "ALL",
+        verificationStatus: (verification === "all"
+          ? "ALL"
+          : verification) as VerificationStatus | "ALL",
+        service,
+        subService,
+        location,
+        search: query.trim() || undefined,
+        dateFrom: range.from || undefined,
+        dateTo: range.to || undefined,
+      };
+
+      startTransition(async () => {
+        const [listResult, statsResult] = await Promise.all([
+          getProviders({ ...filters, page, pageSize }),
+          getProviderStats(filters),
+        ]);
+        if (listResult.success && listResult.data) setData(listResult.data);
+        if (statsResult.success && statsResult.data) setStats(statsResult.data);
+      });
+    },
+    [
+      countryCode,
+      statusFilter,
+      verificationFilter,
+      serviceFilter,
+      subServiceFilter,
+      locationFilter,
+      search,
+      dateRange,
+      data.pageSize,
+    ]
   );
 
   useEffect(() => {
     if (!isReady) return;
+    setStatusFilter("all");
+    setVerificationFilter("all");
+    setServiceFilter("all");
+    setSubServiceFilter("all");
+    setLocationFilter("all");
+    setDateRange(EMPTY_DATE_RANGE);
+    setSearch("");
     startTransition(async () => {
       const [listResult, statsResult] = await Promise.all([
         getProviders({ country: countryCode, page: 1, pageSize: data.pageSize }),
@@ -108,60 +173,19 @@ export function ProvidersContent({
       if (listResult.success && listResult.data) setData(listResult.data);
       if (statsResult.success && statsResult.data) setStats(statsResult.data);
     });
-    setStatusFilter("all");
-    setVerificationFilter("all");
-    setCategoryFilter("all");
-    setServiceFilter("all");
-    setLocationFilter("all");
-    setDateRange(EMPTY_DATE_RANGE);
   }, [countryCode, isReady, data.pageSize]);
 
-  const items = data.items;
-
-  const filteredData = useMemo(() => {
-    return items.filter((provider) => {
-      if (statusFilter !== "all" && provider.status !== statusFilter) return false;
-      if (verificationFilter !== "all" && provider.verificationStatus !== verificationFilter) {
-        return false;
-      }
-      if (categoryFilter !== "all" && provider.serviceCategory !== categoryFilter) return false;
-      if (serviceFilter !== "all" && provider.primaryService !== serviceFilter) return false;
-      if (locationFilter !== "all") {
-        if (locationFilter.startsWith("state:")) {
-          const stateName = locationFilter.slice(6);
-          if (provider.state !== stateName) return false;
-        } else if (provider.city !== locationFilter && provider.location !== locationFilter) {
-          return false;
-        }
-      }
-      if (!isWithinDateRange(provider.createdAt, dateRange)) return false;
-      return true;
-    });
-  }, [items, statusFilter, verificationFilter, categoryFilter, serviceFilter, locationFilter, dateRange]);
-
-  const categoryChart = useMemo(() => {
+  const serviceChart = useMemo(() => {
     const counts: Record<string, number> = {};
-    filteredData.forEach((p) => {
-      const label =
-        categories.find((c) => c.id === p.serviceCategory)?.label ?? p.serviceCategory;
-      counts[label] = (counts[label] ?? 0) + 1;
+    data.items.forEach((p) => {
+      const name = p.primaryService ?? "Unassigned";
+      counts[name] = (counts[name] ?? 0) + 1;
     });
-    return Object.entries(counts).map(([name, count]) => ({ name, count }));
-  }, [filteredData, categories]);
-
-  const handleToggleActive = async (id: string, active: boolean) => {
-    const status: ProviderStatus = active ? "ACTIVE" : "INACTIVE";
-    const result = await updateProviderStatus(id, status);
-    if (!result.success) {
-      toast.error(result.error ?? "Failed to update provider");
-      return;
-    }
-    setData((prev) => ({
-      ...prev,
-      items: prev.items.map((p) => (p.id === id ? { ...p, status } : p)),
-    }));
-    toast.success(`Provider ${active ? "activated" : "deactivated"}`);
-  };
+    return Object.entries(counts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8);
+  }, [data.items]);
 
   const openDetail = async (id: string) => {
     startTransition(async () => {
@@ -175,16 +199,15 @@ export function ProvidersContent({
     });
   };
 
-  const getCategoryLabel = (id: string) =>
-    categories.find((c) => c.id === id)?.label ?? id;
-
   const resetFilters = () => {
     setStatusFilter("all");
     setVerificationFilter("all");
-    setCategoryFilter("all");
     setServiceFilter("all");
+    setSubServiceFilter("all");
     setLocationFilter("all");
     setDateRange(EMPTY_DATE_RANGE);
+    setSearch("");
+    loadProviders(1);
   };
 
   const columns: ColumnDef<ProviderRow>[] = [
@@ -192,32 +215,37 @@ export function ProvidersContent({
       accessorKey: "id",
       header: "Provider ID",
       cell: ({ row }) => (
-        <code className="text-xs font-mono text-muted-foreground">
+        <code className="text-xs font-mono text-muted-foreground" title={row.original.id}>
           {shortId(row.original.id)}
         </code>
       ),
     },
     {
       accessorKey: "businessName",
-      header: "Name",
+      header: "Business",
       cell: ({ row }) => (
-        <p className="font-medium">{row.original.businessName}</p>
+        <div className="min-w-0">
+          <p className="truncate font-medium">{row.original.businessName}</p>
+          <p className="truncate text-xs text-muted-foreground">{row.original.user.email}</p>
+        </div>
       ),
     },
     {
       accessorKey: "primaryService",
       header: "Service",
-      cell: ({ row }) => row.original.primaryService ?? "—",
-    },
-    {
-      accessorKey: "serviceCategory",
-      header: "Category",
-      cell: ({ row }) => getCategoryLabel(row.original.serviceCategory),
+      cell: ({ row }) => (
+        <span className="line-clamp-2 text-sm">{row.original.primaryService ?? "—"}</span>
+      ),
     },
     {
       accessorKey: "status",
       header: "Status",
       cell: ({ row }) => <StatusBadge status={row.original.status} />,
+    },
+    {
+      accessorKey: "verificationStatus",
+      header: "Verification",
+      cell: ({ row }) => <StatusBadge status={row.original.verificationStatus} />,
     },
     {
       id: "bookings",
@@ -228,27 +256,11 @@ export function ProvidersContent({
       accessorKey: "createdAt",
       header: "Joined",
       cell: ({ row }) => (
-        <span className="text-xs text-muted-foreground whitespace-nowrap">
+        <span className="whitespace-nowrap text-xs text-muted-foreground">
           {formatDate(row.original.createdAt)}
         </span>
       ),
       sortingFn: "datetime",
-    },
-    {
-      id: "active",
-      header: "Active / Inactive",
-      cell: ({ row }) => (
-        <div className="flex items-center gap-2">
-          <Switch
-            checked={row.original.status === "ACTIVE"}
-            onCheckedChange={(checked) => handleToggleActive(row.original.id, checked)}
-            aria-label="Toggle provider active status"
-          />
-          <span className="text-xs text-muted-foreground hidden sm:inline">
-            {row.original.status === "ACTIVE" ? "Active" : "Inactive"}
-          </span>
-        </div>
-      ),
     },
     {
       id: "actions",
@@ -256,49 +268,55 @@ export function ProvidersContent({
       cell: ({ row }) => (
         <Button
           variant="ghost"
-          size="icon"
-          className="h-8 w-8 rounded-lg"
+          size="sm"
+          className="h-8 gap-1"
           onClick={() => openDetail(row.original.id)}
-          aria-label="View provider details"
         >
-          <Eye className="h-4 w-4" />
+          <Eye className="h-3.5 w-3.5" />
+          View
         </Button>
       ),
     },
   ];
 
-  const exportData = filteredData.map((p) => ({
+  const exportData = data.items.map((p) => ({
     providerId: p.id,
     name: p.businessName,
+    email: p.user.email,
     service: p.primaryService ?? "",
-    category: getCategoryLabel(p.serviceCategory),
     status: p.status,
-    bookings: p._count.bookings,
     verification: p.verificationStatus,
+    bookings: p._count.bookings,
+    location: p.city ?? p.location,
     joined: formatDate(p.createdAt),
   }));
 
   const exportColumns = [
     { key: "providerId" as const, label: "Provider ID" },
-    { key: "name" as const, label: "Name" },
+    { key: "name" as const, label: "Business" },
+    { key: "email" as const, label: "Email" },
     { key: "service" as const, label: "Service" },
-    { key: "category" as const, label: "Category" },
     { key: "status" as const, label: "Status" },
-    { key: "bookings" as const, label: "Bookings" },
     { key: "verification" as const, label: "Verification" },
+    { key: "bookings" as const, label: "Bookings" },
+    { key: "location" as const, label: "Location" },
     { key: "joined" as const, label: "Joined" },
   ];
 
-  const locationFilterDescription =
-    locationFilter !== "all"
-      ? getLocationDisplayLabel(countryCode, locationFilter)
-      : undefined;
+  const hasActiveFilters =
+    statusFilter !== "all" ||
+    verificationFilter !== "all" ||
+    serviceFilter !== "all" ||
+    subServiceFilter !== "all" ||
+    locationFilter !== "all" ||
+    hasActiveDateRange(dateRange) ||
+    search.trim().length > 0;
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Providers"
-        description="Manage service partners — filter, export, and view full profiles"
+        description={`${country.flag} ${country.name} — View service partners, filter by service, and inspect profiles`}
         badge="Service Partners"
       >
         <ExportButtons
@@ -317,16 +335,162 @@ export function ProvidersContent({
         <StatCard title="Verified" value={stats.verified} icon={ShieldCheck} accent="blue" />
       </div>
 
-      {categoryChart.length > 0 && (
-        <ChartCard title="Providers by Category">
+      <div className="space-y-3 rounded-2xl border border-border/60 bg-muted/20 p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={statusFilter}
+            onValueChange={(v) => {
+              setStatusFilter(v);
+              loadProviders(1, data.pageSize, { status: v });
+            }}
+          >
+            <SelectTrigger className="h-9 w-36 rounded-xl">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Statuses</SelectItem>
+              <SelectItem value="ACTIVE">Active</SelectItem>
+              <SelectItem value="PENDING">Pending</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={verificationFilter}
+            onValueChange={(v) => {
+              setVerificationFilter(v);
+              loadProviders(1, data.pageSize, { verification: v });
+            }}
+          >
+            <SelectTrigger className="h-9 w-40 rounded-xl">
+              <SelectValue placeholder="Verification" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Verification</SelectItem>
+              <SelectItem value="PENDING">Pending</SelectItem>
+              <SelectItem value="UNDER_REVIEW">Under Review</SelectItem>
+              <SelectItem value="VERIFIED">Verified</SelectItem>
+              <SelectItem value="REJECTED">Rejected</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={serviceFilter}
+            onValueChange={(v) => {
+              setServiceFilter(v);
+              setSubServiceFilter("all");
+              loadProviders(1, data.pageSize, { service: v, subService: "all" });
+            }}
+          >
+            <SelectTrigger className="h-9 w-44 rounded-xl">
+              <SelectValue placeholder="Service" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Services</SelectItem>
+              {services.map((s) => (
+                <SelectItem key={s.id} value={s.title}>
+                  {s.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select
+            key={`${countryCode}-${serviceFilter}`}
+            value={subServiceFilter}
+            onValueChange={(v) => {
+              setSubServiceFilter(v);
+              loadProviders(1, data.pageSize, { subService: v });
+            }}
+          >
+            <SelectTrigger className="h-9 w-48 rounded-xl">
+              <SelectValue placeholder="Sub-Service" />
+            </SelectTrigger>
+            <SelectContent className="max-h-[min(20rem,70vh)] overflow-y-auto">
+              <SelectItem value="all">All Sub-Services</SelectItem>
+              {subServiceOptions.map((sub) => (
+                <SelectItem key={sub} value={sub}>
+                  {sub}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select
+            key={countryCode}
+            value={locationFilter}
+            onValueChange={(v) => {
+              setLocationFilter(v);
+              loadProviders(1, data.pageSize, { location: v });
+            }}
+          >
+            <SelectTrigger className="h-9 w-44 rounded-xl">
+              <SelectValue placeholder="Location">
+                {locationFilter === "all"
+                  ? "All Locations"
+                  : getLocationDisplayLabel(countryCode, locationFilter)}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent className="max-h-[min(20rem,70vh)] overflow-y-auto">
+              <SelectItem value="all">All Locations</SelectItem>
+              {country.regions.map((region) => (
+                <SelectGroup key={region.state}>
+                  <SelectLabel>{region.state}</SelectLabel>
+                  <SelectItem value={`state:${region.state}`}>All of {region.state}</SelectItem>
+                  {region.cities.map((city) => (
+                    <SelectItem key={city} value={city} className="pl-6">
+                      {city}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <div className="relative min-w-[12rem] flex-1 sm:min-w-[16rem] sm:max-w-xs">
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") loadProviders(1);
+              }}
+              placeholder="Search ID, name, email…"
+              className="h-9 rounded-xl"
+            />
+          </div>
+
+          <DateRangeFilter value={dateRange} onChange={setDateRange} label="Joined" />
+
+          <Button
+            variant="default"
+            size="sm"
+            className="h-9 rounded-xl"
+            onClick={() => loadProviders(1)}
+          >
+            Apply
+          </Button>
+
+          {hasActiveFilters && (
+            <Button variant="ghost" size="sm" className="h-9 rounded-xl" onClick={resetFilters}>
+              Reset
+            </Button>
+          )}
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          {data.total} provider{data.total === 1 ? "" : "s"} match your filters
+        </p>
+      </div>
+
+      {serviceChart.length > 0 && (
+        <ChartCard title="Providers by Service">
           <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={categoryChart}>
+            <BarChart data={serviceChart}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
-              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} angle={-20} textAnchor="end" height={60} />
               <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
               <Tooltip />
               <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                {categoryChart.map((_, i) => (
+                {serviceChart.map((_, i) => (
                   <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                 ))}
               </Bar>
@@ -335,104 +499,27 @@ export function ProvidersContent({
         </ChartCard>
       )}
 
-      <ListFilterBar
-        description={`${country.flag} ${country.name}${locationFilterDescription ? ` · ${locationFilterDescription}` : ""}`}
-        resultCount={data.total}
-        onReset={resetFilters}
-        hasExtraFilters={hasActiveDateRange(dateRange)}
-        extra={<DateRangeFilter value={dateRange} onChange={setDateRange} label="Joined date" />}
-        filters={[
-          {
-            id: "status",
-            label: "Status",
-            value: statusFilter,
-            onChange: setStatusFilter,
-            options: [
-              { value: "all", label: "All Statuses" },
-              { value: "ACTIVE", label: "Active" },
-              { value: "INACTIVE", label: "Inactive" },
-              { value: "PENDING", label: "Pending" },
-            ],
-          },
-          {
-            id: "verification",
-            label: "Verification",
-            value: verificationFilter,
-            onChange: setVerificationFilter,
-            options: [
-              { value: "all", label: "All Verification" },
-              { value: "PENDING", label: "Pending" },
-              { value: "UNDER_REVIEW", label: "Under Review" },
-              { value: "VERIFIED", label: "Verified" },
-              { value: "REJECTED", label: "Rejected" },
-            ],
-          },
-          {
-            id: "category",
-            label: "Category",
-            value: categoryFilter,
-            onChange: (value) => {
-              setCategoryFilter(value);
-              setServiceFilter("all");
-            },
-            options: [
-              { value: "all", label: "All Categories" },
-              ...categories.map((c) => ({ value: c.id, label: c.label })),
-            ],
-          },
-          {
-            id: "service",
-            label: "Service",
-            value: serviceFilter,
-            onChange: setServiceFilter,
-            options: [
-              { value: "all", label: "All Services" },
-              ...catalogServices.map((s) => ({ value: s.title, label: s.title })),
-            ],
-          },
-          {
-            id: "location",
-            label: "Location",
-            value: locationFilter,
-            onChange: setLocationFilter,
-            options: [
-              { value: "all", label: "All Locations" },
-              ...locationOptions.map((opt) => ({
-                value: opt.value,
-                label: opt.type === "state" ? `All of ${opt.label}` : opt.label,
-              })),
-            ],
-          },
-        ]}
-      />
+      {isPending ? (
+        <LoadingCard rows={8} showHeader={false} />
+      ) : (
+        <>
+          <DataTable
+            columns={columns}
+            data={data.items}
+            searchPlaceholder="Filter current page…"
+            defaultSorting={[{ id: "createdAt", desc: true }]}
+            showPagination={false}
+          />
 
-      <DataTable
-        columns={columns}
-        data={filteredData}
-        searchKeys={["businessName", "user.email", "user.name", "primaryService", "serviceCategory", "location", "city"]}
-        searchPlaceholder="Search providers..."
-        defaultSearch={initialSearch}
-        defaultSorting={[{ id: "createdAt", desc: true }]}
-        showPagination={false}
-      />
-
-      <PaginationControls
-        page={data.page}
-        pageSize={data.pageSize}
-        total={data.total}
-        onPageChange={(p) => {
-          startTransition(async () => {
-            const result = await getProviders({ country: countryCode, page: p, pageSize: data.pageSize });
-            if (result.success && result.data) setData(result.data);
-          });
-        }}
-        onPageSizeChange={(size) => {
-          startTransition(async () => {
-            const result = await getProviders({ country: countryCode, page: 1, pageSize: size });
-            if (result.success && result.data) setData(result.data);
-          });
-        }}
-      />
+          <PaginationControls
+            page={data.page}
+            pageSize={data.pageSize}
+            total={data.total}
+            onPageChange={(p) => loadProviders(p)}
+            onPageSizeChange={(size) => loadProviders(1, size)}
+          />
+        </>
+      )}
 
       <ProviderDetailDialog
         provider={detailProvider}
@@ -440,7 +527,7 @@ export function ProvidersContent({
         onOpenChange={setDetailOpen}
         categoryLabel={
           detailProvider
-            ? getCategoryLabel(detailProvider.serviceCategory)
+            ? getCategoryLabel(detailProvider.serviceCategory as Exclude<ServiceCategoryId, "all">)
             : undefined
         }
       />

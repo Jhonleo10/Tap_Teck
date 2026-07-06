@@ -12,7 +12,6 @@ import {
   endOfYear,
 } from "date-fns";
 import {
-  getCountryCategories,
   resolveLocationCities,
   type CountryCode,
 } from "@/lib/countries";
@@ -41,7 +40,8 @@ export async function getAnalyticsData(
   period: Period = "month",
   service?: string,
   location?: string,
-  country = "india"
+  country = "india",
+  subService?: string
 ) {
   const dateRange = getDateRange(period);
   const countryServices = getCountryServiceTitles(country as CountryCode);
@@ -52,13 +52,17 @@ export async function getAnalyticsData(
       })()
     : {};
 
+  const resolvedService = service && service !== "all" ? service : undefined;
+  const resolvedSubService = subService && subService !== "all" ? subService : undefined;
+
   const where = {
     status: "COMPLETED" as const,
     country,
     completedAt: dateRange,
-    ...(service ? { serviceName: service } : {}),
+    ...(resolvedService ? { serviceName: resolvedService } : {}),
+    ...(resolvedSubService ? { subServiceName: resolvedSubService } : {}),
     ...locationWhere,
-    ...(countryServices.length && !service
+    ...(countryServices.length && !resolvedService
       ? { serviceName: { in: countryServices } }
       : {}),
   };
@@ -68,6 +72,7 @@ export async function getAnalyticsData(
     select: {
       amount: true,
       serviceName: true,
+      subServiceName: true,
       serviceCategory: true,
       location: true,
       completedAt: true,
@@ -75,12 +80,15 @@ export async function getAnalyticsData(
   });
 
   const revenueByService: Record<string, number> = {};
+  const revenueBySubService: Record<string, number> = {};
   const revenueByLocation: Record<string, number> = {};
   const revenueByCategory: Record<string, number> = {};
   const trendByDate: Record<string, number> = {};
 
   bookings.forEach((b) => {
     revenueByService[b.serviceName] = (revenueByService[b.serviceName] ?? 0) + b.amount;
+    const subKey = b.subServiceName ?? b.serviceName;
+    revenueBySubService[subKey] = (revenueBySubService[subKey] ?? 0) + b.amount;
     revenueByLocation[b.location] = (revenueByLocation[b.location] ?? 0) + b.amount;
     revenueByCategory[b.serviceCategory] =
       (revenueByCategory[b.serviceCategory] ?? 0) + b.amount;
@@ -100,6 +108,9 @@ export async function getAnalyticsData(
       name,
       revenue,
     })),
+    revenueBySubService: Object.entries(revenueBySubService)
+      .map(([name, revenue]) => ({ name, revenue }))
+      .sort((a, b) => b.revenue - a.revenue),
     revenueByLocation: Object.entries(revenueByLocation).map(([name, revenue]) => ({
       name,
       revenue,
@@ -131,6 +142,5 @@ export async function getFilterOptions(country = "india") {
     services: serviceTitles,
     subServices,
     locations: locations.map((l) => l.location),
-    categories: getCountryCategories(code).map((c) => c.label),
   };
 }
