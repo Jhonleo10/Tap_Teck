@@ -80,14 +80,6 @@ export function BookingOperationsDrawer({
               <DetailItem label="Category" value={detail.service.category} />
               <DetailItem label="Location" value={detail.location} />
               <DetailItem label="Amount" value={formatCurrency(detail.financials.amount)} />
-              <DetailItem
-                label="Commission"
-                value={formatCurrency(detail.financials.commission)}
-              />
-              <DetailItem
-                label="Provider Earnings"
-                value={formatCurrency(detail.financials.providerEarnings)}
-              />
               <DetailItem label="Payment" value={detail.financials.paymentStatus} />
               <DetailItem label="Source" value={detail.source.replace(/_/g, " ")} />
               <DetailItem label="Priority" value={detail.priority} />

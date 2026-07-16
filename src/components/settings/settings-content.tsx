@@ -30,26 +30,23 @@ import {
   createPlatformService,
   createSubService,
 } from "@/actions/settings";
-import { CommissionSettingsTab } from "@/components/settings/commission-settings-tab";
 import { getCatalogStats } from "@/lib/catalog";
 import { useCountry } from "@/components/providers/country-provider";
 import { cn } from "@/lib/utils";
 
 type Settings = {
   id: string;
-  commissionPercentage: number;
   referralRewardAmount: number;
   giftRules: unknown;
 };
 
-type SubService = { id: string; name: string; commissionPercentage: number | null };
+type SubService = { id: string; name: string };
 type PlatformService = {
   id: string;
   catalogId: number;
   title: string;
   description: string | null;
   isActive: boolean;
-  commissionPercentage: number | null;
   subServices: SubService[];
 };
 type Category = {
@@ -180,7 +177,7 @@ export function SettingsContent({
               ...cat,
               services: [
                 ...cat.services,
-                { ...svc, commissionPercentage: null, subServices: [] },
+                { ...svc, subServices: [] },
               ],
             }
           : cat
@@ -207,7 +204,7 @@ export function SettingsContent({
           s.id === newSubServiceId
             ? {
                 ...s,
-                subServices: [...s.subServices, { ...sub, commissionPercentage: null }],
+                subServices: [...s.subServices, { ...sub }],
               }
             : s
         ),
@@ -225,7 +222,7 @@ export function SettingsContent({
     <div className="page-container">
       <PageHeader
         title="Platform Settings"
-        description={`${country.flag} ${country.name} — Configure commissions, catalog, and rewards synced to mobile apps`}
+        description={`${country.flag} ${country.name} — Configure catalog, referrals, and rewards synced to mobile apps`}
         badge="Configuration"
       />
 
@@ -238,7 +235,6 @@ export function SettingsContent({
       <Tabs defaultValue="catalog">
         <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="catalog">Service Catalog</TabsTrigger>
-          <TabsTrigger value="commission">Commission</TabsTrigger>
           <TabsTrigger value="referral">Referrals</TabsTrigger>
           <TabsTrigger value="gifts">Gift Rules</TabsTrigger>
           <TabsTrigger value="categories">Categories</TabsTrigger>
@@ -247,7 +243,7 @@ export function SettingsContent({
         <TabsContent value="catalog" className="mt-4 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/60 bg-muted/20 px-4 py-3">
             <p className="text-sm text-muted-foreground">
-              Catalog is managed from the TapTeck platform service list (17 services, all sub-services).
+              Catalog is managed from the TapTeck platform service list. Changes sync to mobile apps.
             </p>
             <Button size="sm" onClick={syncCatalog}>Sync Catalog</Button>
           </div>
@@ -334,13 +330,6 @@ export function SettingsContent({
               )}
             </Card>
           ))}
-        </TabsContent>
-
-        <TabsContent value="commission" className="mt-4">
-          <CommissionSettingsTab
-            defaultCommission={settings.commissionPercentage}
-            categories={categories}
-          />
         </TabsContent>
 
         <TabsContent value="referral" className="mt-4">

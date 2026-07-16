@@ -7,7 +7,7 @@ const { auth } = NextAuth(authConfig);
 const publicRoutes = ["/login", "/register", "/forgot-password", "/reset-password"];
 const authRoutes = ["/login", "/register", "/forgot-password", "/reset-password"];
 /** Mobile app / external APIs — must not require admin session */
-const publicApiRoutes = ["/api/catalog", "/api/providers/verify/resubmit"];
+const publicApiRoutes = ["/api/catalog", "/api/providers/verify/resubmit", "/api/plans"];
 
 /** Auth.js session cookie names (v5) */
 const SESSION_COOKIES = [

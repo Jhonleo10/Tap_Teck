@@ -20,6 +20,8 @@ import {
   Bell,
   ScrollText,
   Sparkles,
+  CreditCard,
+  DollarSign,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -42,6 +44,13 @@ const navSections = [
       { href: "/users", label: "Users", icon: Users },
       { href: "/bookings", label: "Bookings", icon: CalendarCheck },
       { href: "/verification", label: "Verification", icon: ShieldCheck, badgeKey: "verification" as const },
+    ],
+  },
+  {
+    label: "Monetization",
+    items: [
+      { href: "/plans", label: "Plans", icon: CreditCard },
+      { href: "/provider-pricing", label: "Provider Pricing", icon: DollarSign },
     ],
   },
   {

@@ -112,6 +112,9 @@ model Provider {
   rating             Float              @default(0)
   totalReviews       Int                @default(0)
   completedJobs      Int                @default(0)
+  freeBookingSlotsTotal Int            @default(5)
+  freeBookingSlotsUsed  Int            @default(0)
+  hasActiveSubscription Boolean        @default(false)
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
@@ -121,6 +124,8 @@ model Provider {
   reviews      Review[]
   messages     VerificationMessage[]
   notifications Notification[]
+  subscriptions ProviderSubscription[]
+  servicePrices  ProviderServicePrice[]
 
   @@index([status])
   @@index([verificationStatus])
@@ -169,7 +174,6 @@ model Booking {
   location        String
   country         String        @default("india")
   amount          Float
-  commission      Float         @default(0)
   status          BookingStatus @default(PENDING)
   scheduledAt     DateTime?
   completedAt     DateTime?
@@ -240,6 +244,62 @@ model Reward {
   @@map("rewards")
 }
 
+// ─── Plans & Subscriptions ────────────────────────────────────────
+
+model Plan {
+  id           String          @id @default(cuid())
+  name         String
+  description  String?         @db.Text
+  price        Float
+  durationMode DurationMode
+  durationDays Int
+  features     Json?
+  isActive     Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  subscriptions ProviderSubscription[]
+
+  @@map("plans")
+}
+
+model ProviderSubscription {
+  id               String             @id @default(cuid())
+  providerId       String
+  planId           String
+  startDate        DateTime           @default(now())
+  endDate          DateTime
+  status           SubscriptionStatus @default(ACTIVE)
+  paymentReference String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  plan     Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([providerId])
+  @@index([status])
+  @@index([endDate])
+  @@map("provider_subscriptions")
+}
+
+model ProviderServicePrice {
+  id            String   @id @default(cuid())
+  providerId    String
+  serviceName   String
+  subServiceName String?
+  price         Float
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, serviceName, subServiceName])
+  @@index([providerId])
+  @@map("provider_service_prices")
+}
+
 // ─── Settings ──────────────────────────────────────────────────────
 
 model AppSettings {
@@ -267,28 +327,28 @@ model ServiceCategory {
 }
 
 model PlatformService {
-  id                   String          @id @default(cuid())
-  catalogId            Int             @unique
-  title                String
-  description          String?         @db.Text
-  icon                 String?
-  categoryId           String
-  isActive             Boolean         @default(true)
+  id                String          @id @default(cuid())
+  catalogId         Int             @unique
+  title             String
+  description       String?         @db.Text
+  icon              String?
+  categoryId        String
+  isActive          Boolean         @default(true)
   commissionPercentage Float?
-  createdAt            DateTime        @default(now())
-  category             ServiceCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  subServices          SubService[]
+  createdAt         DateTime        @default(now())
+  category          ServiceCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  subServices       SubService[]
 
   @@index([categoryId])
   @@map("platform_services")
 }
 
 model SubService {
-  id                   String          @id @default(cuid())
-  name                 String
-  serviceId            String
+  id                String          @id @default(cuid())
+  name              String
+  serviceId         String
+  service           PlatformService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
   commissionPercentage Float?
-  service              PlatformService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
 
   @@unique([serviceId, name])
   @@map("sub_services")
@@ -414,4 +474,16 @@ enum RewardStatus {
   ACTIVE
   CLAIMED
   EXPIRED
+}
+
+enum DurationMode {
+  DAY
+  WEEK
+  MONTH
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
 }

@@ -9,6 +9,7 @@ import {
   ReferralStatus,
   RewardType,
   RewardStatus,
+  DurationMode,
 } from "@prisma/client";
 import { faker } from "@faker-js/faker";
 import bcrypt from "bcryptjs";
@@ -18,13 +19,13 @@ import { syncServiceCatalog } from "../src/lib/sync-catalog";
 
 const prisma = new PrismaClient();
 
-const PROVIDERS_PER_COUNTRY = 10;
-const CUSTOMERS_COUNT = 50;
-const BOOKINGS_PER_COUNTRY = 28;
-const REFERRALS_COUNT = 45;
-const REWARDS_COUNT = 45;
-const NOTIFICATIONS_COUNT = 55;
-const AUDIT_LOGS_COUNT = 50;
+const PROVIDERS_PER_COUNTRY = 3;
+const CUSTOMERS_COUNT = 10;
+const BOOKINGS_PER_COUNTRY = 5;
+const REFERRALS_COUNT = 5;
+const REWARDS_COUNT = 5;
+const NOTIFICATIONS_COUNT = 5;
+const AUDIT_LOGS_COUNT = 5;
 
 type DocSeed = {
   aadhaarStatus: DocStatus;
@@ -145,7 +146,6 @@ async function main() {
     update: {},
     create: {
       id: "default-settings",
-      commissionPercentage: 10.0,
       referralRewardAmount: 100.0,
       giftRules: { newProvider: 50, fiveStarBonus: 200 },
     },
@@ -174,8 +174,7 @@ async function main() {
     },
   });
 
-  console.log("Creating TapTeck Service Catalog...");
-  await syncServiceCatalog(prisma);
+  console.log("Using existing TapTeck Service Catalog...");
 
   console.log("Creating customers...");
   const customers = [];
@@ -198,7 +197,9 @@ async function main() {
     customers.push(user);
   }
 
-  console.log("Creating providers & verification docs per country...");
+  console.log("Creating providers & verification docs for India...");
+  const india = countries.find((c) => c.code === "india")!;
+  const indiaServices = services.filter((s) => india.serviceIds.includes(s.id));
   const providers: Array<{
     id: string;
     userId: string;
@@ -206,191 +207,184 @@ async function main() {
     serviceCategory: string;
     country: string;
     verificationStatus: VerificationStatus;
+    completedJobs: number;
   }> = [];
 
-  for (const country of countries) {
-    const countryServices = services.filter((s) => country.serviceIds.includes(s.id));
+  for (let i = 0; i < PROVIDERS_PER_COUNTRY; i++) {
+    const email = `provider-india-${i}@example.com`;
+    const svc = faker.helpers.arrayElement(indiaServices);
+    const region = faker.helpers.arrayElement(india.regions);
+    const city = faker.helpers.arrayElement(region.cities);
+    const profile = providerProfile(i);
+    const urls = docUrls("india", i);
 
-    for (let i = 0; i < PROVIDERS_PER_COUNTRY; i++) {
-      const email = `provider-${country.code}-${i}@example.com`;
-      const svc = faker.helpers.arrayElement(countryServices);
-      const region = faker.helpers.arrayElement(country.regions);
-      const city = faker.helpers.arrayElement(region.cities);
-      const profile = providerProfile(i);
-      const urls = docUrls(country.code, i);
+    const pUser = await prisma.user.upsert({
+      where: { email },
+      update: {},
+      create: {
+        email,
+        name: faker.person.fullName(),
+        password: await bcrypt.hash("Password@123", 10),
+        role: UserRole.PROVIDER,
+        phone: faker.phone.number({ style: "national" }),
+        status: UserStatus.ACTIVE,
+        referralCode: `PROVIND${i}`,
+        createdAt: faker.date.past({ years: 1 }),
+      },
+    });
 
-      const pUser = await prisma.user.upsert({
-        where: { email },
-        update: {},
-        create: {
-          email,
-          name: faker.person.fullName(),
-          password: await bcrypt.hash("Password@123", 10),
-          role: UserRole.PROVIDER,
-          phone: faker.phone.number({ style: "national" }),
-          status: UserStatus.ACTIVE,
-          referralCode: `PROV${country.code.toUpperCase()}${i}`,
-          createdAt: faker.date.past({ years: 1 }),
-        },
-      });
-
-      const pRecord = await prisma.provider.upsert({
-        where: { userId: pUser.id },
-        update: {
-          country: country.code,
-          primaryService: svc.title,
-          serviceCategory: svc.category,
-          verificationStatus: profile.verificationStatus,
-          isVerified: profile.isVerified,
-          canReceiveBookings: profile.canReceiveBookings,
-          status: profile.status,
-        },
-        create: {
-          userId: pUser.id,
-          businessName: `${faker.company.name()} — ${svc.title}`,
-          description: svc.description,
-          serviceCategory: svc.category,
-          primaryService: svc.title,
-          location: city,
-          city,
-          state: region.state,
-          pincode: faker.location.zipCode(),
-          country: country.code,
-          status: profile.status,
-          verificationStatus: profile.verificationStatus,
-          isVerified: profile.isVerified,
-          canReceiveBookings: profile.canReceiveBookings,
-          rating: profile.isVerified
-            ? faker.number.float({ min: 3.8, max: 5, multipleOf: 0.1 })
-            : 0,
-          totalReviews: profile.isVerified ? faker.number.int({ min: 5, max: 80 }) : 0,
-          completedJobs: profile.isVerified ? faker.number.int({ min: 10, max: 250 }) : 0,
-          createdAt: pUser.createdAt,
-        },
-      });
-
-      providers.push({
-        id: pRecord.id,
-        userId: pUser.id,
-        businessName: pRecord.businessName,
+    const pRecord = await prisma.provider.upsert({
+      where: { userId: pUser.id },
+      update: {
+        country: "india",
+        primaryService: svc.title,
         serviceCategory: svc.category,
-        country: country.code,
         verificationStatus: profile.verificationStatus,
-      });
+        isVerified: profile.isVerified,
+        canReceiveBookings: profile.canReceiveBookings,
+        status: profile.status,
+      },
+      create: {
+        userId: pUser.id,
+        businessName: `${faker.company.name()} — ${svc.title}`,
+        description: svc.description,
+        serviceCategory: svc.category,
+        primaryService: svc.title,
+        location: city,
+        city,
+        state: region.state,
+        pincode: faker.location.zipCode(),
+        country: "india",
+        status: profile.status,
+        verificationStatus: profile.verificationStatus,
+        isVerified: profile.isVerified,
+        canReceiveBookings: profile.canReceiveBookings,
+        rating: profile.isVerified
+          ? faker.number.float({ min: 3.8, max: 5, multipleOf: 0.1 })
+          : 0,
+        totalReviews: profile.isVerified ? faker.number.int({ min: 5, max: 80 }) : 0,
+        completedJobs: profile.isVerified ? faker.number.int({ min: 10, max: 250 }) : 0,
+        createdAt: pUser.createdAt,
+      },
+    });
 
-      await prisma.providerVerification.upsert({
-        where: { providerId: pRecord.id },
-        update: {
-          ...urls,
-          aadhaarStatus: profile.docs.aadhaarStatus,
-          panStatus: profile.docs.panStatus,
-          certificateStatus: profile.docs.certificateStatus,
-          addressStatus: profile.docs.addressStatus,
-          profileStatus: profile.docs.profileStatus,
-          documentNotes: profile.docs.documentNotes ?? undefined,
-        },
-        create: {
-          providerId: pRecord.id,
-          aadhaarStatus: profile.docs.aadhaarStatus,
-          aadhaarNumber: faker.string.numeric(12),
-          panStatus: profile.docs.panStatus,
-          panNumber: faker.string.alphanumeric({ length: 10, casing: "upper" }),
-          certificateStatus: profile.docs.certificateStatus,
-          addressStatus: profile.docs.addressStatus,
-          profileStatus: profile.docs.profileStatus,
-          documentNotes: profile.docs.documentNotes ?? undefined,
-          rejectionReason:
-            profile.verificationStatus === VerificationStatus.REJECTED
-              ? "Multiple documents require re-upload before verification can continue."
-              : null,
-          reviewedBy: profile.isVerified ? adminUser.id : null,
-          reviewedAt: profile.isVerified ? faker.date.recent({ days: 30 }) : null,
-          ...urls,
-        },
-      });
-    }
+    providers.push({
+      id: pRecord.id,
+      userId: pUser.id,
+      businessName: pRecord.businessName,
+      serviceCategory: svc.category,
+      country: "india",
+      verificationStatus: profile.verificationStatus,
+      completedJobs: pRecord.completedJobs,
+    });
+
+    await prisma.providerVerification.upsert({
+      where: { providerId: pRecord.id },
+      update: {
+        ...urls,
+        aadhaarStatus: profile.docs.aadhaarStatus,
+        panStatus: profile.docs.panStatus,
+        certificateStatus: profile.docs.certificateStatus,
+        addressStatus: profile.docs.addressStatus,
+        profileStatus: profile.docs.profileStatus,
+        documentNotes: profile.docs.documentNotes ?? undefined,
+      },
+      create: {
+        providerId: pRecord.id,
+        aadhaarStatus: profile.docs.aadhaarStatus,
+        aadhaarNumber: faker.string.numeric(12),
+        panStatus: profile.docs.panStatus,
+        panNumber: faker.string.alphanumeric({ length: 10, casing: "upper" }),
+        certificateStatus: profile.docs.certificateStatus,
+        addressStatus: profile.docs.addressStatus,
+        profileStatus: profile.docs.profileStatus,
+        documentNotes: profile.docs.documentNotes ?? undefined,
+        rejectionReason:
+          profile.verificationStatus === VerificationStatus.REJECTED
+            ? "Multiple documents require re-upload before verification can continue."
+            : null,
+        reviewedBy: profile.isVerified ? adminUser.id : null,
+        reviewedAt: profile.isVerified ? faker.date.recent({ days: 30 }) : null,
+        ...urls,
+      },
+    });
   }
 
-  console.log("Creating bookings across all countries...");
+  console.log("Creating bookings for India...");
   let bookingIndex = 0;
+  const countryProviders = providers.filter(
+    (p) => p.verificationStatus === VerificationStatus.VERIFIED
+  );
+  const fallbackProviders = providers;
 
-  for (const country of countries) {
-    const countryServices = services.filter((s) => country.serviceIds.includes(s.id));
-    const countryProviders = providers.filter(
-      (p) => p.country === country.code && p.verificationStatus === VerificationStatus.VERIFIED
+  for (let i = 0; i < BOOKINGS_PER_COUNTRY; i++) {
+    const customer = faker.helpers.arrayElement(customers);
+    const provider = faker.helpers.arrayElement(
+      countryProviders.length > 0 ? countryProviders : fallbackProviders
     );
-    const fallbackProviders = providers.filter((p) => p.country === country.code);
+    const svc = faker.helpers.arrayElement(indiaServices);
+    const region = faker.helpers.arrayElement(india.regions);
+    const city = faker.helpers.arrayElement(region.cities);
+    const bNumber = `BKG-IND-${String(bookingIndex++).padStart(4, "0")}`;
 
-    for (let i = 0; i < BOOKINGS_PER_COUNTRY; i++) {
-      const customer = faker.helpers.arrayElement(customers);
-      const provider = faker.helpers.arrayElement(
-        countryProviders.length > 0 ? countryProviders : fallbackProviders
-      );
-      const svc = faker.helpers.arrayElement(countryServices);
-      const region = faker.helpers.arrayElement(country.regions);
-      const city = faker.helpers.arrayElement(region.cities);
-      const bNumber = `BKG-${country.code.toUpperCase()}-${String(bookingIndex++).padStart(4, "0")}`;
+    const createdAt = faker.date.past({ years: 1 });
+    const isCompleted = i < 10;
+    const bStatus = isCompleted
+      ? BookingStatus.COMPLETED
+      : faker.helpers.arrayElement([
+          BookingStatus.PENDING,
+          BookingStatus.IN_PROGRESS,
+          BookingStatus.CANCELLED,
+        ]);
 
-      const createdAt = faker.date.past({ years: 1 });
-      const isCompleted = i < 20;
-      const bStatus = isCompleted
-        ? BookingStatus.COMPLETED
-        : faker.helpers.arrayElement([
-            BookingStatus.PENDING,
-            BookingStatus.IN_PROGRESS,
-            BookingStatus.CANCELLED,
-          ]);
+    const subService =
+      svc.subServices && svc.subServices.length > 0
+        ? faker.helpers.arrayElement(svc.subServices)
+        : svc.title;
 
-      const subService =
-        svc.subServices && svc.subServices.length > 0
-          ? faker.helpers.arrayElement(svc.subServices)
-          : svc.title;
+    const completedAt =
+      bStatus === BookingStatus.COMPLETED
+        ? new Date(createdAt.getTime() + 172800000)
+        : null;
 
-      const completedAt =
-        bStatus === BookingStatus.COMPLETED
-          ? new Date(createdAt.getTime() + 172800000)
-          : null;
+    const booking = await prisma.booking.upsert({
+      where: { bookingNumber: bNumber },
+      update: {
+        country: "india",
+        subServiceName: subService,
+        status: bStatus,
+        completedAt,
+      },
+      create: {
+        bookingNumber: bNumber,
+        userId: customer.id,
+        providerId: provider.id,
+        serviceName: svc.title,
+        subServiceName: subService,
+        serviceCategory: svc.category,
+        location: city,
+        country: "india",
+        amount: faker.number.float({ min: 200, max: 8000, multipleOf: 0.01 }),
+        status: bStatus,
+        scheduledAt: new Date(createdAt.getTime() + 86400000),
+        completedAt,
+        createdAt,
+      },
+    });
 
-      const booking = await prisma.booking.upsert({
-        where: { bookingNumber: bNumber },
-        update: {
-          country: country.code,
-          subServiceName: subService,
-          status: bStatus,
-          completedAt,
-        },
+    if (bStatus === BookingStatus.COMPLETED && i < 7 && booking.completedAt) {
+      await prisma.review.upsert({
+        where: { bookingId: booking.id },
+        update: {},
         create: {
-          bookingNumber: bNumber,
+          bookingId: booking.id,
           userId: customer.id,
           providerId: provider.id,
-          serviceName: svc.title,
-          subServiceName: subService,
-          serviceCategory: svc.category,
-          location: city,
-          country: country.code,
-          amount: faker.number.float({ min: 200, max: 8000, multipleOf: 0.01 }),
-          commission: faker.number.float({ min: 20, max: 800, multipleOf: 0.01 }),
-          status: bStatus,
-          scheduledAt: new Date(createdAt.getTime() + 86400000),
-          completedAt,
-          createdAt,
+          rating: faker.number.int({ min: 3, max: 5 }),
+          comment: `Great ${subService} service in ${city}, India!`,
+          createdAt: new Date(booking.completedAt.getTime() + 86400000),
         },
       });
-
-      if (bStatus === BookingStatus.COMPLETED && i < 14 && booking.completedAt) {
-        await prisma.review.upsert({
-          where: { bookingId: booking.id },
-          update: {},
-          create: {
-            bookingId: booking.id,
-            userId: customer.id,
-            providerId: provider.id,
-            rating: faker.number.int({ min: 3, max: 5 }),
-            comment: `Great ${subService} service in ${city}, ${country.name}!`,
-            createdAt: new Date(booking.completedAt.getTime() + 86400000),
-          },
-        });
-      }
     }
   }
 
@@ -438,6 +432,222 @@ async function main() {
         createdAt: faker.date.recent({ days: 120 }),
       },
     });
+  }
+
+  console.log("Creating subscription plans...");
+  const planData = [
+    {
+      id: "plan-day",
+      name: "Day Pass",
+      description: "24-hour access to receive unlimited bookings",
+      price: 49,
+      durationMode: DurationMode.DAY,
+      durationDays: 1,
+      features: JSON.stringify([
+        "Unlimited bookings for 24 hours",
+        "Visible in customer search results",
+        "Instant booking notifications",
+        "Priority customer support",
+      ]),
+    },
+    {
+      id: "plan-week",
+      name: "Weekly Plan",
+      description: "7 days of full platform access for providers",
+      price: 199,
+      durationMode: DurationMode.WEEK,
+      durationDays: 7,
+      features: JSON.stringify([
+        "7 days of unlimited bookings",
+        "Featured provider badge",
+        "Priority in search results",
+        "Analytics dashboard access",
+        "Dedicated support",
+      ]),
+    },
+    {
+      id: "plan-month-basic",
+      name: "Basic Monthly",
+      description: "Essential monthly plan for growing your business",
+      price: 499,
+      durationMode: DurationMode.MONTH,
+      durationDays: 30,
+      features: JSON.stringify([
+        "30 days of unlimited bookings",
+        "Featured provider badge",
+        "Priority in search results",
+        "Analytics dashboard access",
+        "Monthly performance report",
+        "Dedicated account manager",
+      ]),
+    },
+    {
+      id: "plan-month-pro",
+      name: "Pro Monthly",
+      description: "Professional plan for top-performing providers",
+      price: 999,
+      durationMode: DurationMode.MONTH,
+      durationDays: 30,
+      features: JSON.stringify([
+        "30 days of unlimited bookings",
+        "Verified premium badge",
+        "Top placement in search results",
+        "Advanced analytics & insights",
+        "Weekly performance reports",
+        "Priority 24/7 support",
+        "Marketing promotion opportunities",
+        "Access to exclusive jobs",
+      ]),
+    },
+    {
+      id: "plan-year",
+      name: "Annual Plan",
+      description: "Best value — full year of premium access",
+      price: 4999,
+      durationMode: DurationMode.MONTH,
+      durationDays: 365,
+      features: JSON.stringify([
+        "365 days of unlimited bookings",
+        "Verified premium badge",
+        "Top placement in search results",
+        "Advanced analytics & insights",
+        "Monthly performance reports",
+        "Priority 24/7 support",
+        "Marketing promotion opportunities",
+        "Access to exclusive jobs",
+        "2 months free compared to monthly",
+      ]),
+    },
+  ];
+
+  for (const plan of planData) {
+    await prisma.plan.upsert({
+      where: { id: plan.id },
+      update: {},
+      create: {
+        id: plan.id,
+        name: plan.name,
+        description: plan.description,
+        price: plan.price,
+        durationMode: plan.durationMode,
+        durationDays: plan.durationDays,
+        features: plan.features,
+        isActive: true,
+      },
+    });
+  }
+
+  console.log("Creating provider subscriptions...");
+  const verifiedProviders = providers.filter(
+    (p) => p.verificationStatus === VerificationStatus.VERIFIED
+  );
+  const allPlanIds = ["plan-day", "plan-week", "plan-month-basic", "plan-month-pro", "plan-year"];
+
+  for (let i = 0; i < Math.min(verifiedProviders.length, 5); i++) {
+    const p = verifiedProviders[i];
+    const planId = faker.helpers.arrayElement(allPlanIds);
+    const plan = planData.find((pd) => pd.id === planId);
+    const days = plan?.durationDays ?? 30;
+    const startDate = faker.date.recent({ days: 120 });
+    const endDate = new Date(startDate.getTime() + days * 86400000);
+    const isExpired = i >= 20;
+    const isCancelled = i === 24;
+
+    let status: "ACTIVE" | "EXPIRED" | "CANCELLED" = "ACTIVE";
+    if (isExpired) status = "EXPIRED";
+    if (isCancelled) status = "CANCELLED";
+
+    await prisma.providerSubscription.create({
+      data: {
+        providerId: p.id,
+        planId,
+        startDate,
+        endDate,
+        status,
+        paymentReference: `PAY-${faker.string.alphanumeric({ length: 10, casing: "upper" })}`,
+      },
+    });
+
+if (status === "ACTIVE") {
+      await prisma.provider.update({
+        where: { id: p.id },
+        data: {
+          hasActiveSubscription: true,
+          freeBookingSlotsUsed: Math.min(p.completedJobs ?? 0, 5),
+        },
+      });
+    }
+  }
+
+  console.log("Creating provider service prices...");
+  const serviceTitles = services.map((s) => s.title);
+
+  for (let i = 0; i < Math.min(providers.length, 10); i++) {
+    const p = providers[i];
+    const servicesForProvider = faker.helpers.arrayElements(
+      serviceTitles,
+      faker.number.int({ min: 1, max: 5 })
+    );
+
+    for (const svcTitle of servicesForProvider) {
+      const svc = services.find((s) => s.title === svcTitle);
+      const basePrice = {
+        automotive: 499,
+        cleaning: 799,
+        "home-repair": 349,
+        healthcare: 999,
+        beauty: 599,
+        education: 450,
+        food: 1200,
+        delivery: 199,
+      }[svc?.category ?? "cleaning"] ?? 500;
+
+      const hasSubServices = svc?.subServices && svc.subServices.length > 0;
+
+      if (hasSubServices) {
+        const subServicesToPrice = faker.helpers.arrayElements(
+          svc!.subServices!,
+          faker.number.int({ min: 1, max: Math.min(4, svc!.subServices!.length) })
+        );
+        for (const sub of subServicesToPrice) {
+          await prisma.providerServicePrice.upsert({
+            where: {
+              providerId_serviceName_subServiceName: {
+                providerId: p.id,
+                serviceName: svcTitle,
+                subServiceName: sub,
+              },
+            },
+            update: {},
+            create: {
+              providerId: p.id,
+              serviceName: svcTitle,
+              subServiceName: sub,
+              price: basePrice + faker.number.int({ min: 0, max: 800 }),
+              isActive: faker.datatype.boolean(0.9),
+            },
+          });
+        }
+      } else {
+        await prisma.providerServicePrice.upsert({
+          where: {
+            providerId_serviceName_subServiceName: {
+              providerId: p.id,
+              serviceName: svcTitle,
+              subServiceName: svcTitle,
+            },
+          },
+          update: {},
+          create: {
+            providerId: p.id,
+            serviceName: svcTitle,
+            subServiceName: svcTitle,
+            price: basePrice + faker.number.int({ min: 0, max: 500 }),
+            isActive: faker.datatype.boolean(0.9),
+          },
+        });
+      }
+    }
   }
 
   console.log("Creating verification messages...");

@@ -14,8 +14,6 @@ export interface ProviderOperationsProfile {
   earnings: {
     total: number;
     monthly: number;
-    platformCommission: number;
-    providerNet: number;
   };
   jobs: {
     completed: number;
@@ -51,7 +49,6 @@ export async function getProviderOperationsProfile(
           id: true,
           status: true,
           amount: true,
-          commission: true,
           createdAt: true,
           completedAt: true,
           bookingNumber: true,
@@ -85,7 +82,6 @@ export async function getProviderOperationsProfile(
   ).length;
 
   const totalEarnings = completed.reduce((s, b) => s + b.amount, 0);
-  const totalCommission = completed.reduce((s, b) => s + b.commission, 0);
   const monthlyEarnings = completed
     .filter((b) => b.completedAt && b.completedAt >= monthStart && b.completedAt <= monthEnd)
     .reduce((s, b) => s + b.amount, 0);
@@ -134,8 +130,6 @@ export async function getProviderOperationsProfile(
     earnings: {
       total: totalEarnings,
       monthly: monthlyEarnings,
-      platformCommission: totalCommission,
-      providerNet: totalEarnings - totalCommission,
     },
     jobs: {
       completed: completed.length,

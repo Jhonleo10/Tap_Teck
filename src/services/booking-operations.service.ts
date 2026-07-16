@@ -22,8 +22,6 @@ export interface BookingOperationsDetail {
   country: string;
   financials: {
     amount: number;
-    commission: number;
-    providerEarnings: number;
     paymentStatus: "PAID" | "PENDING" | "REFUNDED";
   };
   review: { rating: number; comment: string | null } | null;
@@ -130,8 +128,6 @@ export async function getBookingOperationsDetail(
     country: booking.country,
     financials: {
       amount: booking.amount,
-      commission: booking.commission,
-      providerEarnings: booking.amount - booking.commission,
       paymentStatus,
     },
     review: booking.review,
@@ -162,7 +158,6 @@ export async function getBookingAnalytics(country?: string): Promise<BookingAnal
     select: {
       status: true,
       amount: true,
-      commission: true,
       createdAt: true,
       completedAt: true,
     },

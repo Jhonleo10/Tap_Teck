@@ -72,14 +72,6 @@ export function ProviderOperationsPanel({ providerId }: { providerId: string }) 
           label="Monthly Earnings"
           value={formatCurrency(profile.earnings.monthly)}
         />
-        <DetailItem
-          label="Provider Net"
-          value={formatCurrency(profile.earnings.providerNet)}
-        />
-        <DetailItem
-          label="Platform Commission"
-          value={formatCurrency(profile.earnings.platformCommission)}
-        />
         <DetailItem label="Completed Jobs" value={profile.jobs.completed} />
         <DetailItem label="Cancelled Jobs" value={profile.jobs.cancelled} />
         <DetailItem
